@@ -1,0 +1,636 @@
+import apiClient from '../services/apiClient';
+import { getProperties } from './mockProperties';
+
+const MANAGER_STORAGE_KEY = 'rentlock_manager_workspace_v1';
+
+export const MANAGER_APPROVAL_LIMIT = 1000;
+
+export function formatActionTimestamp(date = new Date()) {
+  return date.toLocaleString('en-US', {
+    month: '2-digit',
+    day: '2-digit',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function formatShortTime(date = new Date()) {
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+const INITIAL_MANAGER_STATE = {
+  manager: {
+    name: 'Sarah Jenkins',
+    roleLabel: 'Property Manager',
+    spendingLimit: MANAGER_APPROVAL_LIMIT,
+  },
+  properties: [],
+  tenants: [],
+  workOrders: [],
+  threads: [],
+  schedule: [],
+  recentActivity: [],
+};
+
+function cloneInitialManager() {
+  return JSON.parse(JSON.stringify(INITIAL_MANAGER_STATE));
+}
+
+export function getManagerWorkspaceState() {
+  let activeUser = null;
+  try {
+    const rawUser = localStorage.getItem('pm_user');
+    if (rawUser) activeUser = JSON.parse(rawUser);
+  } catch {
+    // ignore
+  }
+
+  const activeName = (activeUser?.name || '').trim().toLowerCase();
+  const activeEmail = (activeUser?.email || '').trim().toLowerCase();
+  const allProps = getProperties().filter((p) => !p.archived);
+
+  // Match properties assigned to this manager
+  const assignedProps = allProps.filter((p) => {
+    const pMgr = (p.manager || '').trim().toLowerCase();
+    if (!pMgr) return false;
+
+    // 1. Direct match with manager name or email
+    if (activeName && (pMgr === activeName || pMgr === activeEmail)) return true;
+
+    // 2. Substring match
+    if (activeName && (pMgr.includes(activeName) || activeName.includes(pMgr))) return true;
+
+    // 3. User's managerData.properties array
+    if (Array.isArray(activeUser?.managerData?.properties)) {
+      if (activeUser.managerData.properties.some((pn) => pn.trim().toLowerCase() === p.name.trim().toLowerCase())) {
+        return true;
+      }
+    }
+
+    // 4. Role manager fallback
+    if (activeUser?.role === 'manager') {
+      if (pMgr === 'manager' || pMgr.includes('manager')) return true;
+      if (pMgr === 'sarah jenkins' || pMgr.includes('sarah')) return true;
+      if (!activeName || activeName === 'manager') return true;
+    }
+
+    return false;
+  });
+
+  // Base state: load from localStorage if available, or clone initial
+  let base = cloneInitialManager();
+  try {
+    const raw = localStorage.getItem(MANAGER_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed?.workOrders) && Array.isArray(parsed?.threads)) {
+        base = parsed;
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // Always map all assignedProps
+  const mappedProps = assignedProps.map((p) => {
+    const propId = String(p.id).startsWith('prop-')
+      ? p.id
+      : `prop-${String(p.name).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+
+    const existing = Array.isArray(base.properties)
+      ? base.properties.find(
+          (bp) =>
+            bp.name?.trim().toLowerCase() === p.name?.trim().toLowerCase() ||
+            String(bp.id) === String(p.id) ||
+            bp.id === propId
+        )
+      : null;
+
+    return {
+      id: existing?.id || propId,
+      name: p.name,
+      address: p.address || p.street || '123 Main St',
+      shortLocation: p.city ? `${p.city}, ${p.state || 'NY'}` : (p.address || 'Metro Area'),
+      neighborhood: p.city || 'Metro Area',
+      type: p.type || 'Residential',
+      status: p.status || 'Active',
+      totalUnits: Number(p.totalUnits) || (existing?.totalUnits || 0),
+      occupiedUnits: Number(p.occupiedUnits) || (existing?.occupiedUnits || 0),
+      vacantUnits: Number(p.vacantUnits) || (existing?.vacantUnits || 0),
+      contactName: (Array.isArray(p.owners) && p.owners[0]?.name) || p.owner || 'Building Owner',
+      contactRole: 'Building owner',
+      contactPhone: p.phone || '555-010-1041',
+      accessInstructions: existing?.accessInstructions || 'Main entrance security / lockbox code #4821.',
+      accessUpdatedAt: existing?.accessUpdatedAt || '11/10/2026',
+      units: existing?.units || [],
+      requirements: existing?.requirements || [],
+      files: existing?.files || [],
+    };
+  });
+
+  base.properties = mappedProps;
+
+  if (activeUser?.role === 'manager' && activeUser?.name) {
+    base.manager = {
+      name: activeUser.name,
+      roleLabel: 'Property Manager',
+      spendingLimit: activeUser.managerData?.spendingCap || MANAGER_APPROVAL_LIMIT,
+    };
+  }
+
+  if (!Array.isArray(base.threads) || base.threads.length === 0) {
+    base.threads = cloneInitialManager().threads;
+  }
+
+  return base;
+}
+
+function saveManagerState(state) {
+  localStorage.setItem(MANAGER_STORAGE_KEY, JSON.stringify(state));
+  return state;
+}
+
+export function getManagerUnreadCount(state, propertyFilter = '') {
+  if (!Array.isArray(state?.threads)) return 0;
+  return state.threads
+    .filter((t) => !propertyFilter || t.propertyId === propertyFilter)
+    .reduce((sum, t) => sum + (Number(t.unreadCount) || 0), 0);
+}
+
+export function getManagerOpenWorkOrders(state, propertyFilter = '') {
+  if (!Array.isArray(state?.workOrders)) return [];
+  return state.workOrders.filter(
+    (wo) => wo.status !== 'Closed' && (!propertyFilter || wo.propertyId === propertyFilter)
+  );
+}
+
+export function createManagerWorkOrder({
+  propertyId,
+  unit,
+  title,
+  report,
+  priority,
+  vendorName,
+  estimateAmount,
+}) {
+  // Real API call to backend
+  apiClient.post('/maintenance', {
+    propertyId: Number(propertyId) || 1,
+    title: title.trim(),
+    description: `${(report || title).trim()}\nAssigned: ${vendorName || 'General Staff'}`,
+    category: 'General',
+    priority: priority || 'Medium',
+  }).catch(() => {});
+
+  const state = getManagerWorkspaceState();
+  const property = state.properties.find((p) => p.id === propertyId) || state.properties[0];
+  const propId = property?.id || propertyId || 'prop-general';
+  const propName = property?.name || 'General Portfolio';
+  const now = new Date();
+  const ts = formatActionTimestamp(now);
+  const shortTime = formatShortTime(now);
+  const nextNum = 327 + state.workOrders.length;
+  const id = `WO-${nextNum}`;
+  const est = Number(estimateAmount) || 0;
+  const needsApproval = est > MANAGER_APPROVAL_LIMIT;
+
+  const newWO = {
+    id,
+    title: title.trim(),
+    shortTitle: title.trim().slice(0, 26),
+    propertyId: propId,
+    propertyName: propName,
+    shortProperty: propName.split(' ')[0],
+    unit: unit?.trim() || 'Common',
+    tenantName: property?.units?.find((u) => u.unit === unit)?.tenant || 'Assigned Unit',
+    priority: priority || 'Normal',
+    status: needsApproval ? 'Approval needed' : 'Assigned',
+    nextAction: needsApproval ? 'Send for approval' : 'Confirm schedule',
+    openedAt: `Opened today at ${shortTime}`,
+    report: report.trim(),
+    vendorName: vendorName?.trim() || 'Pending assignment',
+    estimateAmount: est,
+    approvalRequestedAt: null,
+    assignee: vendorName?.trim() || 'Unassigned',
+    scheduledToday: false,
+    completedOn: '',
+    workPerformed: '',
+    finalCost: '',
+    invoiceNumber: '',
+    attachments: [],
+  };
+
+  const activity = {
+    id: `ACT-${Date.now()}`,
+    ref: id,
+    description: `Created work order (${newWO.title}) · ${ts}`,
+    timeLabel: 'Just now',
+    propertyId: propId,
+    targetPath: `/manager/work-orders?wo=${id}`,
+  };
+
+  const nextState = {
+    ...state,
+    workOrders: [newWO, ...state.workOrders],
+    recentActivity: [activity, ...state.recentActivity].slice(0, 10),
+  };
+
+  // Sync to Admin Maintenance Kanban custom_work_orders_us
+  try {
+    const rawWOs = localStorage.getItem('custom_work_orders_us');
+    const customWOs = rawWOs ? JSON.parse(rawWOs) : [];
+    customWOs.unshift({
+      id,
+      title: title.trim(),
+      description: report.trim(),
+      priority: priority || 'Normal',
+      category: 'General Maintenance',
+      type: 'Manager Dispatched',
+      propertyId: propId,
+      propertyName: propName,
+      unitNumber: unit?.trim() || 'Common',
+      tenantName: newWO.tenantName,
+      assignedTo: vendorName?.trim() || 'Pending assignment',
+      status: needsApproval ? 'Reviewed & Prioritized' : 'Scheduled / Dispatched',
+      scheduledWindow: 'Scheduled by Manager',
+      cost: est,
+      costCap: MANAGER_APPROVAL_LIMIT,
+      createdAt: now.toISOString().split('T')[0],
+      updatedAt: now.toISOString().split('T')[0],
+      approvalNeeded: needsApproval,
+      feedback: null,
+    });
+    localStorage.setItem('custom_work_orders_us', JSON.stringify(customWOs));
+  } catch {
+    // ignore
+  }
+
+  return { state: saveManagerState(nextState), workOrder: newWO };
+}
+
+export function requestWorkOrderApproval(workOrderId) {
+  const state = getManagerWorkspaceState();
+  const ts = formatActionTimestamp();
+  const workOrders = state.workOrders.map((wo) => {
+    if (wo.id !== workOrderId) return wo;
+    return {
+      ...wo,
+      status: 'Approval pending',
+      nextAction: 'Awaiting authorized approver',
+      approvalRequestedAt: ts,
+    };
+  });
+  const target = workOrders.find((w) => w.id === workOrderId);
+  const activity = {
+    id: `ACT-${Date.now()}`,
+    ref: workOrderId,
+    description: `Routed $${target?.estimateAmount || 0} estimate for approval · ${ts}`,
+    timeLabel: 'Just now',
+    propertyId: target?.propertyId || '',
+    targetPath: `/manager/work-orders?wo=${workOrderId}`,
+  };
+  return saveManagerState({
+    ...state,
+    workOrders,
+    recentActivity: [activity, ...state.recentActivity].slice(0, 10),
+  });
+}
+
+export function completeManagerWorkOrder({
+  workOrderId,
+  workPerformed,
+  completedOn,
+  vendorName,
+  finalCost,
+  invoiceNumber,
+  newFiles = [],
+}) {
+  const state = getManagerWorkspaceState();
+  const ts = formatActionTimestamp();
+
+  const workOrders = state.workOrders.map((wo) => {
+    if (wo.id !== workOrderId) return wo;
+    const stampedFiles = newFiles.map((f, idx) => ({
+      id: `ATT-${Date.now()}-${idx}`,
+      name: f.name,
+      type: f.name.toLowerCase().endsWith('.pdf') ? 'PDF' : 'JPG',
+      uploadedAt: ts,
+      url: f.url,
+    }));
+    return {
+      ...wo,
+      status: 'Closed',
+      nextAction: 'Closed',
+      workPerformed: workPerformed.trim(),
+      completedOn: completedOn || ts,
+      vendorName: vendorName.trim(),
+      finalCost: finalCost,
+      invoiceNumber: invoiceNumber.trim(),
+      closedAt: ts,
+      attachments: [...(wo.attachments || []), ...stampedFiles],
+    };
+  });
+
+  const target = workOrders.find((w) => w.id === workOrderId);
+  const activity = {
+    id: `ACT-${Date.now()}`,
+    ref: workOrderId,
+    description: `Work order reviewed and closed (${invoiceNumber || 'verified'}) · ${ts}`,
+    timeLabel: 'Just now',
+    propertyId: target?.propertyId || '',
+    targetPath: `/manager/work-orders?wo=${workOrderId}`,
+  };
+
+  return saveManagerState({
+    ...state,
+    workOrders,
+    recentActivity: [activity, ...state.recentActivity].slice(0, 10),
+  });
+}
+
+export function sendManagerMessage({
+  threadId,
+  text,
+  channel = 'Portal',
+  isInternal = false,
+  attachments = [],
+  senderName = 'Sarah Jenkins',
+}) {
+  // Real API call to backend
+  apiClient.post('/messages', {
+    threadId: Number(String(threadId).replace(/\D/g, '')) || 1,
+    recipientId: 4,
+    content: text.trim(),
+    attachmentUrls: attachments,
+  }).catch(() => {});
+
+  const state = getManagerWorkspaceState();
+  const now = new Date();
+  const shortTime = formatShortTime(now);
+  const ts = formatActionTimestamp(now);
+
+  const threads = state.threads.map((t) => {
+    if (t.id !== threadId) return t;
+    const msg = {
+      id: `MSG-${Date.now()}`,
+      senderType: 'manager',
+      senderLabel: isInternal ? `Internal note · ${senderName} · ${shortTime}` : `${senderName} · ${shortTime}`,
+      text: text.trim(),
+      isInternal,
+      channel: isInternal ? 'Internal' : channel,
+      timestamp: ts,
+      attachments,
+    };
+    return {
+      ...t,
+      timeAgo: 'Just now',
+      unreadCount: 0,
+      messages: [...t.messages, msg],
+    };
+  });
+
+  const targetThread = threads.find((t) => t.id === threadId);
+  const activity = {
+    id: `ACT-${Date.now()}`,
+    ref: targetThread?.contactName || 'Message',
+    description: `${isInternal ? 'Added staff-only internal note' : `Sent ${channel} message`} · ${ts}`,
+    timeLabel: 'Just now',
+    propertyId: targetThread?.propertyId || '',
+    targetPath: `/manager/messages?thread=${threadId}`,
+  };
+
+  return saveManagerState({
+    ...state,
+    threads,
+    recentActivity: [activity, ...state.recentActivity].slice(0, 10),
+  });
+}
+
+export function createManagerThread({
+  contactName,
+  propertyId,
+  unit,
+  channel = 'Portal',
+  text,
+  senderName = 'Sarah Jenkins',
+}) {
+  const state = getManagerWorkspaceState();
+  const property = state.properties.find((p) => p.id === propertyId) || state.properties[0];
+  const propId = property?.id || propertyId || 'prop-general';
+  const propName = property?.name || 'General Portfolio';
+  const now = new Date();
+  const shortTime = formatShortTime(now);
+  const ts = formatActionTimestamp(now);
+
+  const initials = contactName
+    .split(' ')
+    .map((p) => p[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2) || 'TM';
+
+  const id = `THR-${Date.now()}`;
+  const thread = {
+    id,
+    contactName: contactName.trim(),
+    initials,
+    propertyId: propId,
+    propertyUnitLabel: `${propName.split(' ')[0]} · ${unit || 'General'}`,
+    fullPropertyUnit: `${propName} · ${unit || 'General'}`,
+    channel,
+    channelBadge: channel === 'Portal' ? 'PORTAL MESSAGE' : channel.toUpperCase(),
+    preview: `${channel} · ${text.trim().slice(0, 34)}`,
+    timeAgo: 'Just now',
+    unreadCount: 0,
+    workOrderId: null,
+    messages: [
+      {
+        id: `MSG-${Date.now()}`,
+        senderType: 'manager',
+        senderLabel: `${senderName} · ${shortTime}`,
+        text: text.trim(),
+        isInternal: false,
+        channel,
+        timestamp: ts,
+        attachments: [],
+      },
+    ],
+  };
+
+  return {
+    state: saveManagerState({ ...state, threads: [thread, ...state.threads] }),
+    thread,
+  };
+}
+
+export function markManagerThreadRead(threadId) {
+  const state = getManagerWorkspaceState();
+  const threads = state.threads.map((t) => (t.id === threadId ? { ...t, unreadCount: 0 } : t));
+  return saveManagerState({ ...state, threads });
+}
+
+export function updatePropertyAccessNotes(propertyId, accessInstructions) {
+  if (propertyId) {
+    apiClient.put(`/portal/manager/properties/${propertyId}/access-notes`, {
+      accessNotes: accessInstructions,
+    }).catch(() => {});
+  }
+  const state = getManagerWorkspaceState();
+  const ts = formatActionTimestamp();
+  const properties = state.properties.map((p) =>
+    p.id === propertyId ? { ...p, accessInstructions, accessUpdatedAt: ts } : p
+  );
+  const prop = properties.find((p) => p.id === propertyId);
+  const activity = {
+    id: `ACT-${Date.now()}`,
+    ref: prop?.name || 'Property',
+    description: `Updated vendor access & lockbox instructions · ${ts}`,
+    timeLabel: 'Just now',
+    propertyId,
+    targetPath: `/manager/properties/${propertyId}`,
+  };
+  return saveManagerState({
+    ...state,
+    properties,
+    recentActivity: [activity, ...state.recentActivity].slice(0, 10),
+  });
+}
+
+export function uploadPropertyFile(propertyId, fileName, category) {
+  if (propertyId) {
+    apiClient.post(`/properties/${propertyId}/documents`, {
+      name: fileName,
+      category,
+    }).catch(() => {});
+  }
+  const state = getManagerWorkspaceState();
+  const ts = formatActionTimestamp();
+  const properties = state.properties.map((p) => {
+    if (p.id !== propertyId) return p;
+    const newFile = {
+      id: `FIL-${Date.now()}`,
+      name: fileName,
+      category,
+      uploadedAt: ts,
+      uploadedBy: state.manager.name,
+    };
+    return { ...p, files: [newFile, ...(p.files || [])] };
+  });
+  const prop = properties.find((p) => p.id === propertyId);
+  const activity = {
+    id: `ACT-${Date.now()}`,
+    ref: prop?.name || 'Property',
+    description: `Uploaded ${fileName} (${category}) · ${ts}`,
+    timeLabel: 'Just now',
+    propertyId,
+    targetPath: `/manager/properties/${propertyId}`,
+  };
+  return saveManagerState({
+    ...state,
+    properties,
+    recentActivity: [activity, ...state.recentActivity].slice(0, 10),
+  });
+}
+
+export function addManagerTenant({
+  name,
+  email,
+  phone,
+  propertyId,
+  unit,
+  leaseTerm,
+  monthlyRent,
+  password,
+}) {
+  const state = getManagerWorkspaceState();
+  const property = state.properties.find((p) => p.id === propertyId) || state.properties[0];
+  const propId = property?.id || propertyId || 'prop-general';
+  const propName = property?.name || 'General Portfolio';
+  const ts = formatActionTimestamp();
+  const rent = Number(monthlyRent) || 0;
+  const pwd = (password || '').trim() || 'demo123';
+
+  const newTenant = {
+    id: `TEN-${Date.now()}`,
+    name: name.trim(),
+    email: email.trim(),
+    password: pwd,
+    phone: (phone || '').trim(),
+    propertyId: propId,
+    propertyName: propName,
+    unit: unit?.trim() || 'Unit 101',
+    leaseTerm: leaseTerm?.trim() || '12/01/26 - 11/30/27',
+    leaseStatus: 'Active',
+    rentStatus: 'Current',
+    monthlyRent: rent,
+    paidAmount: rent,
+    balance: 0,
+    lastActivity: `Added · ${ts}`,
+    householdMembers: [`${name.trim()} (Primary)`],
+    documents: [],
+    privateNotes: [],
+  };
+
+  const activity = {
+    id: `ACT-${Date.now()}`,
+    ref: `${unit || 'Unit'} · ${name.trim()}`,
+    description: `Added resident to ${propName} · ${ts}`,
+    timeLabel: 'Just now',
+    propertyId: propId,
+    targetPath: '/manager/tenants',
+  };
+
+  // Sync to Admin/Owner custom_tenants in localStorage
+  try {
+    const rawTenants = localStorage.getItem('custom_tenants');
+    const customTenants = rawTenants ? JSON.parse(rawTenants) : [];
+    customTenants.push({
+      id: Date.now(),
+      name: name.trim(),
+      email: email.trim(),
+      password: pwd,
+      mobile: (phone || '').trim(),
+      propertyId: propId,
+      propertyName: propName,
+      unitNumber: unit?.trim() || 'Unit 101',
+      rent,
+      deposit: rent,
+      dueAmount: 0,
+      leaseEnd: '2027-11-30',
+      moveInDate: new Date().toISOString().split('T')[0],
+      status: 'Active',
+      screeningStatus: 'Consent Verified · Approved',
+    });
+    localStorage.setItem('custom_tenants', JSON.stringify(customTenants));
+  } catch {
+    // ignore
+  }
+
+  return saveManagerState({
+    ...state,
+    tenants: [newTenant, ...state.tenants],
+    recentActivity: [activity, ...state.recentActivity].slice(0, 10),
+  });
+}
+
+export function addTenantPrivateNote(tenantId, noteText) {
+  if (tenantId) {
+    apiClient.post(`/portal/manager/tenants/${tenantId}/notes`, {
+      noteText: noteText.trim(),
+    }).catch(() => {});
+  }
+  const state = getManagerWorkspaceState();
+  const ts = formatActionTimestamp();
+  const tenants = state.tenants.map((t) => {
+    if (t.id !== tenantId) return t;
+    const note = {
+      id: `PN-${Date.now()}`,
+      text: noteText.trim(),
+      createdAt: ts,
+      author: state.manager.name,
+    };
+    return { ...t, privateNotes: [note, ...(t.privateNotes || [])] };
+  });
+  return saveManagerState({ ...state, tenants });
+}
