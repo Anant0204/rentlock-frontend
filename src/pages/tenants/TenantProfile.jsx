@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import apiClient from '../../services/apiClient';
 import {
   Phone, Mail, Building2, ShieldCheck, FileText, CreditCard,
-  Wrench, Edit, Archive, AlertCircle, Save, MessageSquare
+  Wrench, Edit, Trash2, AlertCircle, Save, MessageSquare
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import PageHeader from '../../components/shared/PageHeader';
@@ -38,7 +38,8 @@ export default function TenantProfile() {
   const tenant = tenantsList.find((t) => String(t.id) === String(id)) || tenantsList[0];
 
   const [activeTab, setActiveTab] = useState('overview');
-  const [isArchiveModalOpen, setIsArchiveModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editForm, setEditForm] = useState(() => ({
     name: tenant?.name || '',
@@ -81,11 +82,27 @@ export default function TenantProfile() {
     toast.success('Resident profile updated.');
   };
 
-  const confirmArchive = () => {
-    updateTenant(tenant.id, { status: 'Archived', archived: true });
-    setTenantsList(getTenants());
-    setIsArchiveModalOpen(false);
-    toast.success(`${tenant.name} archived. Ledger & lease history retained.`);
+  const confirmDelete = async () => {
+    setIsDeleting(true);
+    try {
+      await apiClient.delete(`/tenants/${tenant.id}`);
+      const updated = tenantsList.filter((t) => String(t.id) !== String(tenant.id));
+      setTenantsList(updated);
+      localStorage.setItem('custom_tenants', JSON.stringify(updated));
+      setIsDeleteModalOpen(false);
+      toast.success(`${tenant.name} deleted successfully from database.`);
+      navigate('/tenants');
+    } catch (err) {
+      console.warn('Backend delete tenant failed, removing locally:', err?.message);
+      const updated = tenantsList.filter((t) => String(t.id) !== String(tenant.id));
+      setTenantsList(updated);
+      localStorage.setItem('custom_tenants', JSON.stringify(updated));
+      setIsDeleteModalOpen(false);
+      toast.success(`${tenant.name} removed.`);
+      navigate('/tenants');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -100,11 +117,9 @@ export default function TenantProfile() {
             <Button variant="secondary" icon={Edit} onClick={() => setIsEditModalOpen(true)}>
               Edit Profile
             </Button>
-            {tenant.status !== 'Archived' && (
-              <Button variant="danger" icon={Archive} onClick={() => setIsArchiveModalOpen(true)}>
-                Archive Resident
-              </Button>
-            )}
+            <Button variant="danger" icon={Trash2} onClick={() => setIsDeleteModalOpen(true)}>
+              Delete Resident
+            </Button>
           </div>
         }
       />
@@ -257,27 +272,29 @@ export default function TenantProfile() {
         </Card>
       </div>
 
-      {/* Archive Safeguard Modal */}
+      {/* Delete Resident Modal */}
       <Modal
-        isOpen={isArchiveModalOpen}
-        onClose={() => setIsArchiveModalOpen(false)}
-        title="Archive Resident Record"
+        isOpen={isDeleteModalOpen}
+        onClose={() => !isDeleting && setIsDeleteModalOpen(false)}
+        title="Delete Resident Record"
         size="sm"
         footer={
           <>
-            <Button variant="secondary" onClick={() => setIsArchiveModalOpen(false)}>Cancel</Button>
-            <Button variant="danger" onClick={confirmArchive}>Archive Record</Button>
+            <Button variant="secondary" onClick={() => setIsDeleteModalOpen(false)} disabled={isDeleting}>Cancel</Button>
+            <Button variant="danger" onClick={confirmDelete} disabled={isDeleting}>
+              {isDeleting ? 'Deleting...' : 'Delete Resident'}
+            </Button>
           </>
         }
       >
         <div className="flex flex-col items-center gap-4 py-4 text-center">
-          <div className="w-14 h-14 rounded-full bg-amber-50 flex items-center justify-center">
-            <AlertCircle className="w-7 h-7 text-amber-600" />
+          <div className="w-14 h-14 rounded-full bg-rose-50 flex items-center justify-center">
+            <Trash2 className="w-7 h-7 text-rose-600" />
           </div>
           <div>
-            <p className="text-gray-900 font-bold text-base mb-1">Archive "{tenant.name}"?</p>
+            <p className="text-gray-900 font-bold text-base mb-1">Delete "{tenant.name}" permanently?</p>
             <p className="text-gray-500 text-xs leading-relaxed">
-              RentLock does not permanently delete residents with linked leases, trust deposits, or invoices. Archiving hides them from active lists while keeping financial audit history intact.
+              This action will permanently delete this tenant from the database. Any linked child records will be cleaned up safely.
             </p>
           </div>
         </div>

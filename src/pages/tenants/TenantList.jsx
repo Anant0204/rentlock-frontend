@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Users, ShieldCheck, AlertCircle, Building2, Eye, MessageSquare } from 'lucide-react';
+import { Plus, Users, ShieldCheck, AlertCircle, Building2, Eye, Trash2, MessageSquare } from 'lucide-react';
+import toast from 'react-hot-toast';
 import PageHeader from '../../components/shared/PageHeader';
 import Card from '../../components/ui/Card';
 import StatCard from '../../components/shared/StatCard';
@@ -8,6 +9,7 @@ import Table from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import Tabs from '../../components/ui/Tabs';
+import Modal from '../../components/ui/Modal';
 import apiClient from '../../services/apiClient';
 import { getTenants } from '../../data/mockTenants';
 import { formatUsd, formatDate } from '../../utils/formatters';
@@ -18,6 +20,8 @@ export default function TenantList() {
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
   const [allTenants, setAllTenants] = useState(() => getTenants());
+  const [tenantToDelete, setTenantToDelete] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     apiClient.get('/tenants?limit=100').then((res) => {
@@ -28,6 +32,28 @@ export default function TenantList() {
       }
     }).catch(() => {});
   }, []);
+
+  const handleDeleteTenant = async () => {
+    if (!tenantToDelete) return;
+    setIsDeleting(true);
+    try {
+      await apiClient.delete(`/tenants/${tenantToDelete.id}`);
+      const updated = allTenants.filter((t) => String(t.id) !== String(tenantToDelete.id));
+      setAllTenants(updated);
+      localStorage.setItem('custom_tenants', JSON.stringify(updated));
+      toast.success(`${tenantToDelete.name} deleted successfully.`);
+      setTenantToDelete(null);
+    } catch (err) {
+      console.warn('API delete tenant failed, deleting locally:', err?.message);
+      const updated = allTenants.filter((t) => String(t.id) !== String(tenantToDelete.id));
+      setAllTenants(updated);
+      localStorage.setItem('custom_tenants', JSON.stringify(updated));
+      toast.success(`${tenantToDelete.name} removed.`);
+      setTenantToDelete(null);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const filteredData = useMemo(() => {
     return allTenants.filter((t) => {
@@ -177,24 +203,66 @@ export default function TenantList() {
           onPageChange={setPage}
           onRowClick={(row) => navigate(`/tenants/${row.id}`)}
           actions={(row) => (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                navigate(`/tenants/${row.id}`);
-              }}
-              className="p-1.5 rounded-lg text-indigo-600 hover:bg-indigo-50"
-              title="Open Tenant Profile"
-            >
-              <Eye className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(`/tenants/${row.id}`);
+                }}
+                className="p-1.5 rounded-lg text-indigo-600 hover:bg-indigo-50 transition-colors"
+                title="Open Tenant Profile"
+              >
+                <Eye className="w-4 h-4" />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setTenantToDelete(row);
+                }}
+                className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 transition-colors"
+                title="Delete Tenant"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
           )}
         />
 
-        <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-100 flex items-center gap-2 text-xs text-emerald-900">
-          <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>Tenant records retain billing history safely via Archive status rather than hard deletion.</span>
+        <div className="p-3 rounded-xl bg-indigo-50/70 border border-indigo-100 flex items-center gap-2 text-xs text-indigo-900">
+          <ShieldCheck className="w-4 h-4 text-indigo-600 shrink-0" />
+          <span>Resident management with real-time database synchronization and full lifecycle control.</span>
         </div>
       </Card>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={!!tenantToDelete}
+        onClose={() => !isDeleting && setTenantToDelete(null)}
+        title="Delete Resident"
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setTenantToDelete(null)} disabled={isDeleting}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={handleDeleteTenant} disabled={isDeleting}>
+              {isDeleting ? 'Deleting...' : 'Delete Resident'}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col items-center gap-4 py-4 text-center">
+          <div className="w-14 h-14 rounded-full bg-rose-50 flex items-center justify-center">
+            <Trash2 className="w-7 h-7 text-rose-600" />
+          </div>
+          <div>
+            <p className="text-gray-900 font-bold text-base mb-1">Delete "{tenantToDelete?.name}"?</p>
+            <p className="text-gray-500 text-xs leading-relaxed">
+              This action will permanently delete this tenant from the database.
+            </p>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

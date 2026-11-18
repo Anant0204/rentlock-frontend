@@ -1,8 +1,8 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Users, UserCheck, Plus, Search, Eye, Edit2, Archive,
-  RotateCcw, Download, Landmark, CheckCircle2,
+  Users, UserCheck, Plus, Search, Eye, Edit2, Trash2,
+  Download, Landmark, CheckCircle2,
   AlertTriangle, KeyRound, ShieldCheck
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -35,20 +35,45 @@ export default function OwnerList() {
   const [typeFilter, setTypeFilter] = useState('All Types');
   const [statusFilter, setStatusFilter] = useState('All Statuses');
 
-  useEffect(() => {
-    apiClient.get('/owners').then((res) => {
+  const fetchOwners = async () => {
+    try {
+      const res = await apiClient.get('/owners');
       const items = res?.items || res;
       if (Array.isArray(items)) {
-        setOwners(items);
-        localStorage.setItem('custom_owners', JSON.stringify(items));
+        const local = getOwners();
+        const merged = items.map((apiOwner) => {
+          const localOwner = local.find(
+            (l) => String(l.id) === String(apiOwner.id) || (l.email && apiOwner.email && l.email.toLowerCase() === apiOwner.email.toLowerCase())
+          );
+          return {
+            ...apiOwner,
+            ...localOwner,
+            id: apiOwner.id,
+            name: apiOwner.name || localOwner?.name,
+            email: apiOwner.email || localOwner?.email,
+            phone: apiOwner.phone !== undefined && apiOwner.phone !== '' ? apiOwner.phone : (localOwner?.phone || ''),
+            mailingAddress: localOwner?.mailingAddress !== undefined ? localOwner.mailingAddress : (apiOwner.mailingAddress || ''),
+            ownerType: localOwner?.ownerType || apiOwner.ownerType || 'Individual',
+            status: localOwner?.status || apiOwner.status || 'Active',
+          };
+        });
+        setOwners(merged);
+        localStorage.setItem('custom_owners', JSON.stringify(merged));
       }
-    }).catch(() => {});
+    } catch {
+      setOwners(getOwners());
+    }
+  };
+
+  useEffect(() => {
+    fetchOwners();
   }, []);
 
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(() => searchParams.get('add') === 'true');
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [isArchiveModalOpen, setIsArchiveModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [targetOwner, setTargetOwner] = useState(null);
 
   const allProperties = useMemo(() => getProperties(), []);
@@ -105,8 +130,8 @@ export default function OwnerList() {
       ownerType: 'Individual',
       email: '',
       password: '',
-      phone: '+1 (212) 555-0100',
-      mailingAddress: '123 Main St, New York, NY 10001',
+      phone: '',
+      mailingAddress: '',
       status: 'Active',
     });
     setIsAddModalOpen(true);
@@ -114,6 +139,15 @@ export default function OwnerList() {
 
   const handleCloseAddModal = () => {
     setIsAddModalOpen(false);
+    setFormData({
+      name: '',
+      ownerType: 'Individual',
+      email: '',
+      password: '',
+      phone: '',
+      mailingAddress: '',
+      status: 'Active',
+    });
     if (searchParams.get('add')) {
       navigate('/owners', { replace: true });
     }
@@ -133,7 +167,7 @@ export default function OwnerList() {
     setIsEditModalOpen(true);
   };
 
-  const handleSaveAdd = () => {
+  const handleSaveAdd = async () => {
     if (!formData.name.trim() || !formData.email.trim()) {
       return toast.error('Legal Owner Name and Email are required.');
     }
@@ -141,11 +175,10 @@ export default function OwnerList() {
       return toast.error('Please create a login password for this owner (minimum 4 characters).');
     }
 
-    const newOwnerObj = {
-      id: createOwnerTempId(),
+    const payload = {
       name: formData.name.trim(),
       ownerType: formData.ownerType,
-      email: formData.email.trim(),
+      email: formData.email.trim().toLowerCase(),
       password: formData.password.trim(),
       phone: (formData.phone || '').trim(),
       mailingAddress: (formData.mailingAddress || '').trim(),
@@ -154,48 +187,74 @@ export default function OwnerList() {
       properties: [],
       allocations: [],
       totalUnits: 0,
-      sharePercentage: 0,
+      sharePercentage: 100,
       totalRevenue: 0,
       totalExpenses: 0,
       netIncome: 0,
       distributionsYtd: 0,
     };
 
+    let createdId = createOwnerTempId();
+    try {
+      const res = await apiClient.post('/owners', payload);
+      const createdUser = res?.data || res;
+      if (createdUser?.id) createdId = createdUser.id;
+    } catch (err) {
+      console.warn('[API] Create owner in backend failed:', err?.message);
+    }
+
+    const newOwnerObj = { ...payload, id: createdId };
     addOwner(newOwnerObj);
     refreshOwners();
     handleCloseAddModal();
     toast.success(`Owner ${newOwnerObj.name} created successfully with portal login.`);
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!targetOwner) return;
     if (!formData.name.trim() || !formData.email.trim()) {
       return toast.error('Legal Owner Name and Email are required.');
     }
 
-    updateOwner(targetOwner.id, {
+    const payload = {
       name: formData.name.trim(),
       ownerType: formData.ownerType,
-      email: formData.email.trim(),
+      email: formData.email.trim().toLowerCase(),
       password: formData.password ? formData.password.trim() : (targetOwner.password || 'demo123'),
       phone: (formData.phone || '').trim(),
       mailingAddress: (formData.mailingAddress || '').trim(),
       status: formData.status,
       sharePercentage: Number(formData.sharePercentage) || targetOwner.sharePercentage || 100,
-    });
+    };
 
+    try {
+      await apiClient.put(`/owners/${targetOwner.id}`, payload);
+    } catch (err) {
+      console.warn('[API] Update owner in backend failed:', err?.message);
+    }
+
+    updateOwner(targetOwner.id, payload);
     refreshOwners();
     setIsEditModalOpen(false);
     toast.success(`Owner ${formData.name} updated.`);
   };
 
-  const handleArchiveToggle = () => {
+  const handleDeleteOwner = async () => {
     if (!targetOwner) return;
-    const nextArchived = !targetOwner.archived;
-    archiveOwner(targetOwner.id, nextArchived);
-    refreshOwners();
-    setIsArchiveModalOpen(false);
-    toast.success(nextArchived ? `Owner ${targetOwner.name} archived.` : `Owner ${targetOwner.name} restored.`);
+    setIsDeleting(true);
+    try {
+      await apiClient.delete(`/owners/${targetOwner.id}`);
+    } catch (err) {
+      console.warn('[API] Delete owner failed, removing locally:', err?.message);
+    }
+    deleteOwner(targetOwner.id);
+    const updated = owners.filter((o) => String(o.id) !== String(targetOwner.id));
+    setOwners(updated);
+    localStorage.setItem('custom_owners', JSON.stringify(updated));
+    setIsDeleteModalOpen(false);
+    toast.success(`Owner ${targetOwner.name} deleted successfully.`);
+    setTargetOwner(null);
+    setIsDeleting(false);
   };
 
   const handleExportCsv = () => {
@@ -440,13 +499,13 @@ export default function OwnerList() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          icon={owner.archived ? RotateCcw : Archive}
+                          icon={Trash2}
                           onClick={() => {
                             setTargetOwner(owner);
-                            setIsArchiveModalOpen(true);
+                            setIsDeleteModalOpen(true);
                           }}
-                          title={owner.archived ? 'Restore' : 'Archive'}
-                          className={owner.archived ? 'text-emerald-600' : 'text-gray-400 hover:text-red-500'}
+                          title="Delete Owner"
+                          className="text-gray-400 hover:text-rose-600 transition-colors"
                         />
                       </div>
                     </td>
@@ -458,13 +517,13 @@ export default function OwnerList() {
         </div>
       </Card>
 
-      {/* Non-destructive policy banner */}
-      <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-2xl p-4 text-xs text-blue-950">
+      {/* Information banner */}
+      <div className="flex items-start gap-3 bg-indigo-50 border border-indigo-200 rounded-2xl p-4 text-xs text-indigo-950">
         <ShieldCheck className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
         <div>
-          <p className="font-semibold">Non-Destructive Owner Accounting Safeguard</p>
-          <p className="text-blue-900 mt-0.5">
-            Owners and entities cannot be deleted if historical distribution statements, tax filings, or property shares exist. Use <strong>Archive</strong> to retire an entity while preserving all historical IRS 1099 and ownership audit trails.
+          <p className="font-semibold">Owner Portfolio & Entity Management</p>
+          <p className="text-indigo-900 mt-0.5">
+            Manage legal ownership, entity profiles, and distributions with real-time database synchronization and account lifecycle management.
           </p>
         </div>
       </div>
@@ -516,7 +575,7 @@ export default function OwnerList() {
             />
             <Input
               label="U.S. Phone Number"
-              placeholder="+1 (212) 555-0188"
+              placeholder="+1 (212) 555-0100"
               value={formData.phone}
               onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
             />
@@ -524,7 +583,7 @@ export default function OwnerList() {
 
           <Input
             label="Address"
-            placeholder="e.g. 725 Fifth Ave, Apt 24B, New York, NY 10022"
+            placeholder="123 Main St, New York, NY 10001"
             value={formData.mailingAddress}
             onChange={(e) => setFormData({ ...formData, mailingAddress: e.target.value })}
           />
@@ -626,37 +685,36 @@ export default function OwnerList() {
         </div>
       </Modal>
 
-      {/* ARCHIVE / RESTORE MODAL */}
+      {/* DELETE OWNER MODAL */}
       <Modal
-        isOpen={isArchiveModalOpen}
-        onClose={() => setIsArchiveModalOpen(false)}
-        title={targetOwner?.archived ? `Restore Owner · ${targetOwner?.name}` : `Archive Owner · ${targetOwner?.name}`}
+        isOpen={isDeleteModalOpen}
+        onClose={() => !isDeleting && setIsDeleteModalOpen(false)}
+        title={targetOwner ? `Delete Owner · ${targetOwner.name}` : 'Delete Owner'}
         size="md"
         footer={
           <>
-            <Button variant="secondary" onClick={() => setIsArchiveModalOpen(false)}>
+            <Button variant="secondary" onClick={() => setIsDeleteModalOpen(false)} disabled={isDeleting}>
               Cancel
             </Button>
             <Button
-              className={targetOwner?.archived ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'}
-              onClick={handleArchiveToggle}
+              variant="danger"
+              onClick={handleDeleteOwner}
+              disabled={isDeleting}
             >
-              {targetOwner?.archived ? 'Confirm Restore' : 'Confirm Archive'}
+              {isDeleting ? 'Deleting...' : 'Delete Owner'}
             </Button>
           </>
         }
       >
         <div className="space-y-3 text-xs">
-          <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 flex items-start gap-2.5">
-            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+          <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-950 flex items-start gap-2.5">
+            <Trash2 className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
             <div>
-              <p className="font-bold">
-                {targetOwner?.archived ? 'Restore Owner Account?' : 'Archive Owner Record?'}
+              <p className="font-bold text-sm">
+                Delete "{targetOwner?.name}" permanently?
               </p>
-              <p className="mt-1">
-                {targetOwner?.archived
-                  ? `Restoring ${targetOwner?.name} will re-activate their entity for new property allocations and owner disbursements.`
-                  : `Archiving ${targetOwner?.name} prevents new allocations while permanently keeping all historical ownership distributions, receipts, and IRS records safe.`}
+              <p className="mt-1 text-gray-600 leading-relaxed">
+                This will permanently remove this owner record and their portal access from the database. This action cannot be undone.
               </p>
             </div>
           </div>

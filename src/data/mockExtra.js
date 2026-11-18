@@ -163,18 +163,34 @@ export const archiveOwner = (id, archived = true) => {
 };
 
 export const deleteOwner = (id) => {
+  if (id) {
+    apiClient.delete(`/owners/${id}`).catch((err) => {
+      console.warn('[API] Delete owner in backend failed:', err.message);
+    });
+  }
   const saved = localStorage.getItem('custom_owners');
   if (saved) {
     const customItems = JSON.parse(saved);
-    const updated = customItems.filter((p) => p.id !== id);
+    const updated = customItems.filter((p) => String(p.id) !== String(id));
     localStorage.setItem('custom_owners', JSON.stringify(updated));
   }
 };
 
 export const updateOwner = (id, data) => {
+  if (id && data) {
+    apiClient.put(`/owners/${id}`, {
+      name: data.name,
+      email: data.email,
+      phone: data.phone,
+      password: data.password,
+    }).catch((err) => {
+      console.warn('[API] Update owner in backend failed:', err.message);
+    });
+  }
+
   const saved = localStorage.getItem('custom_owners');
   const customItems = saved ? JSON.parse(saved) : [];
-  const index = customItems.findIndex((p) => p.id === id);
+  const index = customItems.findIndex((p) => String(p.id) === String(id));
   if (index > -1) {
     customItems[index] = { ...customItems[index], ...data };
   } else {

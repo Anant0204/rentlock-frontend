@@ -3,8 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import apiClient from '../../services/apiClient';
 import {
   Building2, DollarSign, Wallet, TrendingUp, Landmark, ShieldCheck,
-  FileText, Edit2, Archive, ArrowLeft, Mail, Phone, MapPin,
-  CheckCircle2, RotateCcw, KeyRound
+  FileText, Edit2, Trash2, ArrowLeft, Mail, Phone, MapPin,
+  CheckCircle2, KeyRound
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import PageHeader from '../../components/shared/PageHeader';
@@ -16,7 +16,7 @@ import Avatar from '../../components/ui/Avatar';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
-import { getOwners, updateOwner, archiveOwner } from '../../data/mockExtra';
+import { getOwners, updateOwner, deleteOwner } from '../../data/mockExtra';
 import { formatUsd } from '../../utils/formatters';
 
 export default function OwnerDetail() {
@@ -81,11 +81,20 @@ export default function OwnerDetail() {
     toast.success(`Owner ${editForm.name} updated.`);
   };
 
-  const handleToggleArchive = () => {
-    const next = !owner.archived;
-    archiveOwner(owner.id, next);
-    setOwners(getOwners());
-    toast.success(next ? `${owner.name} archived.` : `${owner.name} restored.`);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    setIsDeleting(true);
+    try {
+      await apiClient.delete(`/owners/${owner.id}`);
+    } catch (err) {
+      console.warn('API delete owner failed:', err?.message);
+    }
+    deleteOwner(owner.id);
+    toast.success(`Owner ${owner.name} deleted successfully.`);
+    setIsDeleteModalOpen(false);
+    navigate('/owners');
   };
 
   // Sample historical distributions
@@ -114,12 +123,11 @@ export default function OwnerDetail() {
               Edit Profile
             </Button>
             <Button
-              variant="secondary"
-              icon={owner.archived ? RotateCcw : Archive}
-              onClick={handleToggleArchive}
-              className={owner.archived ? 'text-emerald-700' : 'text-gray-600 hover:text-red-600'}
+              variant="danger"
+              icon={Trash2}
+              onClick={() => setIsDeleteModalOpen(true)}
             >
-              {owner.archived ? 'Restore Owner' : 'Archive Owner'}
+              Delete Owner
             </Button>
           </div>
         }
@@ -342,6 +350,36 @@ export default function OwnerDetail() {
             <div>
               <Select label="Account Status" options={['Active', 'Pending Setup']} value={editForm.status} onChange={(e) => setEditForm({ ...editForm, status: e.target.value })} />
             </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={isDeleteModalOpen}
+        onClose={() => !isDeleting && setIsDeleteModalOpen(false)}
+        title={`Delete Owner · ${owner.name}`}
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setIsDeleteModalOpen(false)} disabled={isDeleting}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={handleDelete} disabled={isDeleting}>
+              {isDeleting ? 'Deleting...' : 'Delete Owner'}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col items-center gap-4 py-4 text-center">
+          <div className="w-14 h-14 rounded-full bg-rose-50 flex items-center justify-center">
+            <Trash2 className="w-7 h-7 text-rose-600" />
+          </div>
+          <div>
+            <p className="text-gray-900 font-bold text-base mb-1">Delete "{owner.name}"?</p>
+            <p className="text-gray-500 text-xs leading-relaxed">
+              This will permanently delete this owner from the database and remove their portal access.
+            </p>
           </div>
         </div>
       </Modal>
