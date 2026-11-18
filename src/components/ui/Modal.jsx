@@ -30,7 +30,7 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md', f
             </button>
           </div>
         )}
-        <div className={`flex-1 p-6 ${bodyClassName}`}>
+        <div className={`flex-1 p-6 ${bodyClassName}`} data-modal-body>
           {children}
         </div>
         {footer && (

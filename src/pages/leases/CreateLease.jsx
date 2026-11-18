@@ -33,9 +33,28 @@ export default function CreateLease() {
   const location = useLocation();
   const incomingApplicant = location.state?.applicant || null;
 
-  const properties = useMemo(() => getProperties().filter((p) => !p.archived), []);
-  const units = useMemo(() => getUnits().filter((u) => !u.archived), []);
+  const [propertiesList, setPropertiesList] = useState(() => getProperties().filter((p) => !p.archived));
+  const [unitsList, setUnitsList] = useState(() => getUnits().filter((u) => !u.archived));
   const tenants = useMemo(() => getTenants(), []);
+
+  useEffect(() => {
+    apiClient.get('/properties?limit=100').then((res) => {
+      const items = res?.items || res;
+      if (Array.isArray(items) && items.length > 0) {
+        setPropertiesList(items);
+      }
+    }).catch(() => {});
+
+    apiClient.get('/units?limit=100').then((res) => {
+      const items = res?.items || res;
+      if (Array.isArray(items) && items.length > 0) {
+        setUnitsList(items);
+      }
+    }).catch(() => {});
+  }, []);
+
+  const properties = propertiesList;
+  const units = unitsList;
 
   const initialProperty = incomingApplicant?.propertyName || properties[0]?.name || 'Sunrise Residency';
   const propertyUnits = useMemo(() => units.filter((u) => u.propertyName === initialProperty), [units, initialProperty]);
@@ -89,18 +108,54 @@ export default function CreateLease() {
     [form.recurringAddons]
   );
 
+  const termDuration = useMemo(() => {
+    if (form.leaseType !== 'Fixed-Term') return 'Month-to-Month (Rolling)';
+    if (!form.startDate || !form.endDate) return '12 Months (1 Year)';
+    const start = new Date(form.startDate);
+    const end = new Date(form.endDate);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return '12 Months (1 Year)';
+    
+    let months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+    if (end.getDate() >= start.getDate() - 2) months += 1;
+    months = Math.max(1, months);
+    
+    if (months === 12) return '12 Months (1 Year)';
+    if (months % 12 === 0) return `${months} Months (${months / 12} Years)`;
+    return `${months} Months`;
+  }, [form.leaseType, form.startDate, form.endDate]);
+
+  const dueAtSigning = useMemo(() => {
+    const rent = Number(form.monthlyRent) || 0;
+    const dep = Number(form.deposit) || 0;
+    return rent + dep + recurringAddonsTotal;
+  }, [form.monthlyRent, form.deposit, recurringAddonsTotal]);
+
   const handlePropertySwitch = (propName) => {
     const matchedProp = properties.find((p) => p.name === propName);
     const propUnits = units.filter((u) => u.propertyName === propName);
     const nextUnit = propUnits[0];
+    const newRent = nextUnit?.rent ? String(nextUnit.rent) : form.monthlyRent;
+    const newDep = nextUnit?.deposit ? String(nextUnit.deposit) : newRent;
     setForm((prev) => ({
       ...prev,
       propertyName: propName,
       unitNumber: nextUnit?.unitNumber || '',
       stateJurisdiction: matchedProp?.state || prev.stateJurisdiction,
       templateVersion: `${matchedProp?.state || 'NY'} Standard ${matchedProp?.type === 'Commercial' ? 'Commercial NNN' : 'Residential'} Lease v4.2`,
-      monthlyRent: nextUnit ? String(nextUnit.rent) : prev.monthlyRent,
-      deposit: nextUnit ? String(nextUnit.deposit) : prev.deposit,
+      monthlyRent: newRent,
+      deposit: newDep,
+    }));
+  };
+
+  const handleUnitSwitch = (uNum) => {
+    const matched = activeUnitsForProp.find((u) => u.unitNumber === uNum);
+    const newRent = matched?.rent ? String(matched.rent) : form.monthlyRent;
+    const newDep = matched?.deposit ? String(matched.deposit) : newRent;
+    setForm((prev) => ({
+      ...prev,
+      unitNumber: uNum,
+      monthlyRent: newRent,
+      deposit: newDep,
     }));
   };
 
@@ -203,6 +258,16 @@ export default function CreateLease() {
       return result;
     });
   }, [form.rentSchedule, form.monthlyRent]);
+
+  const totalContractValue = useMemo(() => {
+    if (!computedRentSchedule || computedRentSchedule.length === 0) {
+      return (Number(form.monthlyRent || 0) + recurringAddonsTotal) * 12;
+    }
+    return computedRentSchedule.reduce((sum, row) => {
+      const yearly = ((Number(row.newRent) || 0) + recurringAddonsTotal) * 12;
+      return sum + yearly;
+    }, 0);
+  }, [computedRentSchedule, recurringAddonsTotal, form.monthlyRent]);
 
   const toggleAddendum = (name) => {
     setForm((prev) => ({
@@ -321,7 +386,7 @@ export default function CreateLease() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Select label="Property" value={form.propertyName} options={properties.map((p) => p.name)} onChange={(e) => handlePropertySwitch(e.target.value)} />
-                <Select label="Unit Number" value={form.unitNumber} options={activeUnitsForProp.map((u) => u.unitNumber)} onChange={(e) => setForm({ ...form, unitNumber: e.target.value })} />
+                <Select label="Unit Number" value={form.unitNumber} options={activeUnitsForProp.map((u) => u.unitNumber)} onChange={(e) => handleUnitSwitch(e.target.value)} />
               </div>
 
               <div className="space-y-3">
@@ -637,45 +702,153 @@ export default function CreateLease() {
         </Card>
 
         {/* Right Sticky Contract Overview */}
-        <Card className="lg:col-span-4 p-6 sticky top-24 space-y-5">
-          <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-            <h3 className="font-bold text-gray-900">Contract Overview</h3>
-            <Badge status={form.leaseType === 'Fixed-Term' ? 'Active' : 'In Progress'} />
-          </div>
-
-          <div className="space-y-3 text-xs">
-            <div className="flex justify-between"><span className="text-gray-500">Property / Unit</span><span className="font-bold text-gray-900">{form.propertyName} · {form.unitNumber}</span></div>
-            <div className="flex justify-between"><span className="text-gray-500">Jurisdiction</span><span className="font-bold text-indigo-700">{form.stateJurisdiction} · {form.leaseType}</span></div>
-            <div className="flex justify-between"><span className="text-gray-500">Term</span><span className="font-semibold text-gray-800">{formatDate(form.startDate)} → {form.leaseType === 'Fixed-Term' ? formatDate(form.endDate) : 'Rolling'}</span></div>
-            <div className="flex justify-between"><span className="text-gray-500">Base Monthly Rent</span><span className="font-bold text-gray-900">{formatUsd(form.monthlyRent)}</span></div>
-            <div className="flex justify-between"><span className="text-gray-500">Recurring Add-ons</span><span className="font-semibold text-gray-800">{formatUsd(recurringAddonsTotal)}</span></div>
-            <div className="flex justify-between pt-2 border-t border-gray-100 text-sm">
-              <span className="font-bold text-gray-800">Total Monthly Billing</span>
-              <span className="font-black text-indigo-700">{formatUsd(Number(form.monthlyRent || 0) + recurringAddonsTotal)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Trust Security Deposit</span>
-              <span className="font-bold text-emerald-700">{formatUsd(form.deposit)}</span>
-            </div>
-          </div>
-
-          <div className="p-3.5 rounded-xl bg-gray-50 border border-gray-200 space-y-1.5 text-xs">
-            <p className="font-bold text-gray-700">Signers Roster ({form.coSigners.length})</p>
-            {form.coSigners.map((s, idx) => (
-              <div key={idx} className="flex justify-between text-gray-600">
-                <span className="truncate max-w-[140px]">{s.name || 'Unnamed'}</span>
-                <span className="font-semibold text-gray-800">{s.role}</span>
+        <div className="lg:col-span-4 sticky top-6 space-y-4">
+          <Card className="p-5 md:p-6 space-y-5 rounded-2xl border border-gray-200/80 bg-white shadow-sm">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div>
+                <h3 className="font-bold text-gray-900 text-base">Contract Overview</h3>
+                <p className="text-[11px] text-gray-500 mt-0.5">Live lease summary &amp; billing</p>
               </div>
-            ))}
-          </div>
+              <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                form.leaseType === 'Fixed-Term' ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+              }`}>
+                {form.leaseType}
+              </span>
+            </div>
 
-          <div className="p-3.5 rounded-xl bg-blue-50/70 border border-blue-100 text-[11px] text-blue-900 flex items-start gap-2">
-            <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-            <span>
-              Security deposits are tracked separately in Trust Liability and never auto-recognized as rental income.
-            </span>
-          </div>
-        </Card>
+            {/* Core Details */}
+            <div className="space-y-2.5 text-xs">
+              <div className="flex justify-between items-center py-0.5">
+                <span className="text-gray-500">Property / Unit</span>
+                <span className="font-bold text-gray-900 text-right">{form.propertyName} · {form.unitNumber || 'TBD'}</span>
+              </div>
+              <div className="flex justify-between items-center py-0.5">
+                <span className="text-gray-500">Jurisdiction / Template</span>
+                <span className="font-bold text-indigo-700 text-right">{form.stateJurisdiction} · {form.templateVersion ? form.templateVersion.split(' ')[0] : 'State'} Lease</span>
+              </div>
+              <div className="flex justify-between items-center py-0.5">
+                <span className="text-gray-500">Lease Term</span>
+                <span className="font-semibold text-gray-800 text-right">
+                  {formatDate(form.startDate)} → {form.leaseType === 'Fixed-Term' ? formatDate(form.endDate) : 'Rolling'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-0.5">
+                <span className="text-gray-500">Term Duration</span>
+                <span className="font-bold text-indigo-900 bg-indigo-50/60 px-2 py-0.5 rounded-md text-[11px]">{termDuration}</span>
+              </div>
+              <div className="flex justify-between items-center py-0.5">
+                <span className="text-gray-500">Scheduled Move-In</span>
+                <span className="font-semibold text-gray-800">{formatDate(form.moveInDate)}</span>
+              </div>
+            </div>
+
+            {/* Financial Breakdown */}
+            <div className="p-3.5 rounded-xl bg-gray-50/80 border border-gray-200/80 space-y-2 text-xs">
+              <p className="font-bold text-gray-700 uppercase tracking-wider text-[10px]">Monthly Billing Breakdown</p>
+              
+              <div className="flex justify-between text-gray-600">
+                <span>Base Monthly Rent</span>
+                <span className="font-bold text-gray-900">{formatUsd(form.monthlyRent)}</span>
+              </div>
+              
+              {form.recurringAddons.length > 0 ? (
+                form.recurringAddons.map((addon, idx) => (
+                  <div key={idx} className="flex justify-between text-gray-500 text-[11px] pl-2 border-l-2 border-indigo-200">
+                    <span className="truncate max-w-[150px]">{addon.label || 'Add-on'}</span>
+                    <span className="font-medium text-gray-700">{formatUsd(addon.amount)}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="flex justify-between text-gray-400 text-[11px]">
+                  <span>Recurring Add-ons</span>
+                  <span>$0.00</span>
+                </div>
+              )}
+
+              <div className="flex justify-between pt-2 border-t border-gray-200 text-sm">
+                <span className="font-bold text-gray-800">Total Monthly Billing</span>
+                <span className="font-black text-indigo-700">{formatUsd(Number(form.monthlyRent || 0) + recurringAddonsTotal)}</span>
+              </div>
+            </div>
+
+            {/* Move-in / Due at Signing */}
+            <div className="p-3.5 rounded-xl bg-emerald-50/60 border border-emerald-200/70 space-y-2 text-xs">
+              <div className="flex justify-between items-center">
+                <span className="font-bold text-emerald-950 uppercase tracking-wider text-[10px]">Total Due at Signing</span>
+                <span className="font-black text-emerald-800 text-sm">{formatUsd(dueAtSigning)}</span>
+              </div>
+              <div className="space-y-1 text-[11px] text-emerald-900/80 pt-1 border-t border-emerald-200/60">
+                <div className="flex justify-between">
+                  <span>First Month's Rent</span>
+                  <span className="font-semibold">{formatUsd(form.monthlyRent)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Trust Security Deposit (Escrow)</span>
+                  <span className="font-semibold">{formatUsd(form.deposit)}</span>
+                </div>
+                {recurringAddonsTotal > 0 && (
+                  <div className="flex justify-between">
+                    <span>Move-in Add-ons</span>
+                    <span className="font-semibold">{formatUsd(recurringAddonsTotal)}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Escalation Schedule Preview */}
+            {computedRentSchedule.length > 1 && (
+              <div className="p-3 rounded-xl bg-indigo-50/50 border border-indigo-100 space-y-2 text-xs">
+                <div className="flex justify-between items-center">
+                  <span className="font-bold text-indigo-950 text-[10px] uppercase tracking-wider">Multi-Year Escalation Plan</span>
+                  <span className="text-[10px] font-bold text-indigo-600">{computedRentSchedule.length} Years</span>
+                </div>
+                <div className="space-y-1 text-[11px]">
+                  {computedRentSchedule.map((s, idx) => (
+                    <div key={idx} className="flex justify-between items-center text-gray-600">
+                      <span className="font-medium text-gray-800">{s.year}</span>
+                      <span className="font-bold text-gray-900">
+                        {formatUsd(s.newRent)}/mo
+                        {idx > 0 && <span className="text-emerald-600 text-[10px] ml-1">({s.increaseType === 'Fixed Amount ($)' ? `+$${s.increaseValue}` : `+${s.increaseValue}%`})</span>}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-between pt-1.5 border-t border-indigo-100 text-[11px]">
+                  <span className="font-bold text-indigo-900">Est. Total Multi-Year Value</span>
+                  <span className="font-black text-indigo-900">{formatUsd(totalContractValue)}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Signers Roster */}
+            <div className="p-3.5 rounded-xl bg-gray-50 border border-gray-200 space-y-2 text-xs">
+              <div className="flex justify-between items-center">
+                <p className="font-bold text-gray-700">Signers Roster ({form.coSigners.length})</p>
+                <span className="text-[10px] text-gray-400">E-Sign Ready</span>
+              </div>
+              {form.coSigners.map((s, idx) => (
+                <div key={idx} className="flex justify-between items-center text-gray-600 py-0.5">
+                  <div className="truncate max-w-[160px]">
+                    <span className="font-medium text-gray-900 block truncate">{s.name || 'Unnamed Signer'}</span>
+                    <span className="text-[10px] text-gray-400 block truncate">{s.email || 'No email provided'}</span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-white border border-gray-200 text-gray-700 shrink-0">
+                    {s.role}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Legal Notice */}
+            <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-100 text-[11px] text-blue-900 flex items-start gap-2">
+              <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+              <span>
+                Trust deposit is held in escrow under {form.stateJurisdiction} banking regulations and never recognized as rental income.
+              </span>
+            </div>
+          </Card>
+        </div>
       </div>
     </div>
   );

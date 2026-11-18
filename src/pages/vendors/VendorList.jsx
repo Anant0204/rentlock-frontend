@@ -4,7 +4,7 @@ import {
   DollarSign, CheckCircle2, Wrench, Star, Building2,
   Calendar, LayoutGrid, List, Zap, Wind, Flame,
   CreditCard, Sparkles, AlertTriangle, FileText, Check,
-  Clock, MapPin, Trash2
+  Clock, MapPin, Trash2, Pencil
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import PageHeader from '../../components/shared/PageHeader';
@@ -18,7 +18,7 @@ import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
 import apiClient from '../../services/apiClient';
 import { formatUsd } from '../../utils/formatters';
-import { getVendors, addVendor, deleteVendor } from '../../data/mockOperations';
+import { getVendors, addVendor, updateVendor, deleteVendor } from '../../data/mockOperations';
 
 const CATEGORIES = [
   'All Categories',
@@ -47,18 +47,40 @@ export default function VendorList() {
   const [categoryFilter, setCategoryFilter] = useState('All Categories');
   const [viewMode, setViewMode] = useState('cards'); // 'cards' | 'table'
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
   const [isPayOpen, setIsPayOpen] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [selectedVendor, setSelectedVendor] = useState(null);
+  const [vendorToEdit, setVendorToEdit] = useState(null);
   const [vendorToDelete, setVendorToDelete] = useState(null);
 
   useEffect(() => {
     apiClient.get('/operations/vendors').then((res) => {
       const items = res?.items || res;
-      if (Array.isArray(items)) {
-        setVendors(items);
-        localStorage.setItem('custom_vendors', JSON.stringify(items));
+      if (Array.isArray(items) && items.length > 0) {
+        const localVendors = getVendors();
+        const merged = items.map((dbV) => {
+          const formattedId = `VND-${String(dbV.id).padStart(3, '0')}`;
+          const match = localVendors.find(
+            (lv) => String(lv.id) === String(dbV.id) || String(lv.id) === formattedId || (lv.name && lv.name.toLowerCase() === dbV.name.toLowerCase())
+          );
+          return {
+            ...match,
+            ...dbV,
+            id: formattedId,
+            dbId: dbV.id,
+            contactPerson: match?.contactPerson || dbV.contactPerson || 'Jonny Plumber',
+            rating: match?.rating || 5.0,
+            openWorkOrders: match?.openWorkOrders || 0,
+            ytdSpend: match?.ytdSpend || 0,
+            paymentMethod: match?.paymentMethod || 'ACH Bank Transfer',
+            coiStatus: dbV.coiVerified ? 'Valid' : (match?.coiStatus || 'Valid'),
+          };
+        });
+        setVendors(merged);
+        localStorage.setItem('custom_vendors', JSON.stringify(merged));
+        localStorage.setItem('pm_vendors', JSON.stringify(merged));
       }
     }).catch(() => {});
   }, []);
@@ -71,12 +93,59 @@ export default function VendorList() {
     phone: '',
     email: '',
     address: '',
-    taxId: '',
-    paymentTerms: 'Net 30',
     paymentMethod: 'ACH Bank Transfer',
     coiExpiry: '2027-12-31',
     notes: '',
   });
+
+  // Edit Vendor Form State
+  const [editForm, setEditForm] = useState({
+    name: '',
+    contactPerson: '',
+    category: 'Plumbing',
+    phone: '',
+    email: '',
+    address: '',
+    paymentMethod: 'ACH Bank Transfer',
+    coiExpiry: '2027-12-31',
+    coiStatus: 'Valid',
+    notes: '',
+    rating: 5.0,
+  });
+
+  const openEditModal = (vendor) => {
+    setVendorToEdit(vendor);
+    setEditForm({
+      name: vendor.name || '',
+      contactPerson: vendor.contactPerson || '',
+      category: vendor.category || 'Plumbing',
+      phone: vendor.phone || '',
+      email: vendor.email || '',
+      address: vendor.address || '',
+      paymentMethod: vendor.paymentMethod || 'ACH Bank Transfer',
+      coiExpiry: vendor.coiExpiry || '2027-12-31',
+      coiStatus: vendor.coiStatus || 'Valid',
+      notes: vendor.notes || '',
+      rating: vendor.rating || 5.0,
+    });
+    setIsEditOpen(true);
+  };
+
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    if (!editForm.name.trim() || !editForm.contactPerson.trim()) {
+      toast.error('Vendor company name and contact person are required.');
+      return;
+    }
+    const updated = await updateVendor(vendorToEdit.id, editForm);
+    setVendors(updated);
+    if (selectedVendor?.id === vendorToEdit.id) {
+      setSelectedVendor((prev) => ({ ...prev, ...editForm }));
+    }
+    setIsEditOpen(false);
+    setVendorToEdit(null);
+    toast.success(`Vendor "${editForm.name}" updated successfully!`);
+  };
 
   // Pay Form State
   const [payForm, setPayForm] = useState({
@@ -108,13 +177,13 @@ export default function VendorList() {
     return { total, coiValid, openWos, totalSpend };
   }, [vendors]);
 
-  const handleAddSubmit = (e) => {
+  const handleAddSubmit = async (e) => {
     e.preventDefault();
     if (!form.name.trim() || !form.contactPerson.trim()) {
       toast.error('Vendor company name and contact person are required.');
       return;
     }
-    const updated = addVendor(form);
+    const updated = await addVendor(form);
     setVendors(updated);
     setIsAddOpen(false);
     setForm({
@@ -124,8 +193,6 @@ export default function VendorList() {
       phone: '',
       email: '',
       address: '',
-      taxId: '',
-      paymentTerms: 'Net 30',
       paymentMethod: 'ACH Bank Transfer',
       coiExpiry: '2027-12-31',
       notes: '',
@@ -173,9 +240,9 @@ export default function VendorList() {
     setIsDeleteOpen(true);
   };
 
-  const handleDeleteVendor = () => {
+  const handleDeleteVendor = async () => {
     if (!vendorToDelete) return;
-    const updated = deleteVendor(vendorToDelete.id);
+    const updated = await deleteVendor(vendorToDelete.id);
     setVendors(updated);
     if (selectedVendor?.id === vendorToDelete.id) {
       setIsDetailOpen(false);
@@ -366,6 +433,14 @@ export default function VendorList() {
                       </span>
                       <button
                         type="button"
+                        onClick={() => openEditModal(v)}
+                        className="p-1 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors cursor-pointer"
+                        title="Edit Vendor"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => confirmDelete(v)}
                         className="p-1 rounded-lg text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
                         title="Delete Vendor"
@@ -436,8 +511,8 @@ export default function VendorList() {
                       <strong className="text-gray-900 font-bold text-sm">{formatUsd(v.ytdSpend)}</strong>
                     </div>
                     <div className="text-right">
-                      <span className="text-[10px] text-gray-400 block uppercase font-bold">Terms</span>
-                      <span className="text-gray-700 font-medium">{v.paymentTerms} · {v.paymentMethod}</span>
+                      <span className="text-[10px] text-gray-400 block uppercase font-bold">Payment Method</span>
+                      <span className="text-gray-700 font-medium">{v.paymentMethod}</span>
                     </div>
                   </div>
                 </div>
@@ -451,6 +526,14 @@ export default function VendorList() {
                     onClick={() => openPayModal(v)}
                   >
                     Pay Vendor
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    icon={Pencil}
+                    onClick={() => openEditModal(v)}
+                  >
+                    Edit
                   </Button>
                   <Button
                     size="sm"
@@ -475,7 +558,7 @@ export default function VendorList() {
                   <th className="py-3.5 px-4">Contact</th>
                   <th className="py-3.5 px-4">Insurance (COI)</th>
                   <th className="py-3.5 px-4">Active Jobs</th>
-                  <th className="py-3.5 px-4">Payment Terms</th>
+                  <th className="py-3.5 px-4">Payment Method</th>
                   <th className="py-3.5 px-4">Total Paid</th>
                   <th className="py-3.5 px-5 text-right">Actions</th>
                 </tr>
@@ -535,10 +618,9 @@ export default function VendorList() {
                         )}
                       </td>
 
-                      {/* Payment Terms */}
+                      {/* Payment Method */}
                       <td className="py-3.5 px-4">
-                        <p className="font-medium text-gray-800">{v.paymentTerms}</p>
-                        <p className="text-[10px] text-gray-400">{v.paymentMethod}</p>
+                        <p className="font-medium text-gray-800">{v.paymentMethod}</p>
                       </td>
 
                       {/* Total Paid */}
@@ -551,6 +633,9 @@ export default function VendorList() {
                         <div className="flex items-center justify-end gap-1.5">
                           <Button size="xs" onClick={() => openPayModal(v)}>
                             Pay
+                          </Button>
+                          <Button size="xs" variant="secondary" icon={Pencil} onClick={() => openEditModal(v)}>
+                            Edit
                           </Button>
                           <Button size="xs" variant="secondary" onClick={() => openDetailDrawer(v)}>
                             Details
@@ -604,7 +689,7 @@ export default function VendorList() {
               </span>
             </div>
             <p className="text-indigo-800 text-[11px]">
-              Payment Method: <strong>{selectedVendor?.paymentMethod}</strong> · Terms: <strong>{selectedVendor?.paymentTerms}</strong>
+              Payment Method: <strong>{selectedVendor?.paymentMethod}</strong>
             </p>
           </div>
 
@@ -685,37 +770,6 @@ export default function VendorList() {
               options={['Plumbing', 'Electrical', 'HVAC', 'Landscaping & Snow', 'Fire Safety', 'Janitorial', 'General Contractor', 'Roofing', 'Pest Control']}
               onChange={(e) => setForm({ ...form, category: e.target.value })}
             />
-            <Input
-              label="Phone Number"
-              placeholder="+1 (718) 555-0142"
-              value={form.phone}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Input
-              label="Email Address"
-              type="email"
-              placeholder="service@vendor.com"
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-            />
-            <Input
-              label="Tax ID / EIN (for 1099 compliance)"
-              placeholder="XX-XXXXXXX"
-              value={form.taxId}
-              onChange={(e) => setForm({ ...form, taxId: e.target.value })}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Select
-              label="Payment Terms"
-              value={form.paymentTerms}
-              options={['Net 30', 'Net 15', 'Due on Receipt', 'Bi-Weekly']}
-              onChange={(e) => setForm({ ...form, paymentTerms: e.target.value })}
-            />
             <Select
               label="Payment Method"
               value={form.paymentMethod}
@@ -726,7 +780,23 @@ export default function VendorList() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input
-              label="Insurance (COI) Expiration Date"
+              label="Phone Number"
+              placeholder="+1 (718) 555-0142"
+              value={form.phone}
+              onChange={(e) => setForm({ ...form, phone: e.target.value })}
+            />
+            <Input
+              label="Email Address"
+              type="email"
+              placeholder="service@vendor.com"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input
+              label="Expiration Date"
               type="date"
               value={form.coiExpiry}
               onChange={(e) => setForm({ ...form, coiExpiry: e.target.value })}
@@ -744,6 +814,112 @@ export default function VendorList() {
             placeholder="Specialized equipment, emergency dispatch rates, key codes..."
             value={form.notes}
             onChange={(e) => setForm({ ...form, notes: e.target.value })}
+          />
+        </form>
+      </Modal>
+
+      {/* ────────────────────────────────────────────── */}
+      {/* 2B. EDIT VENDOR MODAL                          */}
+      {/* ────────────────────────────────────────────── */}
+      <Modal
+        isOpen={isEditOpen}
+        onClose={() => setIsEditOpen(false)}
+        title={`Edit Vendor Profile · ${vendorToEdit?.name || ''}`}
+        size="lg"
+        bodyClassName="overflow-visible"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setIsEditOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleEditSubmit}>
+              Save Changes
+            </Button>
+          </div>
+        }
+      >
+        <form onSubmit={handleEditSubmit} className="space-y-4 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input
+              label="Company / Vendor Name *"
+              required
+              placeholder="e.g. Apex Electrical Services"
+              value={editForm.name}
+              onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+            />
+            <Input
+              label="Primary Contact Person *"
+              required
+              placeholder="e.g. David Chen"
+              value={editForm.contactPerson}
+              onChange={(e) => setEditForm({ ...editForm, contactPerson: e.target.value })}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Select
+              label="Trade / Service Category"
+              value={editForm.category}
+              options={['Plumbing', 'Electrical', 'HVAC', 'Landscaping & Snow', 'Fire Safety', 'Janitorial', 'General Contractor', 'Roofing', 'Pest Control']}
+              onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
+            />
+            <Select
+              label="Payment Method"
+              value={editForm.paymentMethod}
+              options={['ACH Bank Transfer', 'Check', 'Wire', 'Credit Card']}
+              onChange={(e) => setEditForm({ ...editForm, paymentMethod: e.target.value })}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input
+              label="Phone Number"
+              placeholder="+1 (718) 555-0142"
+              value={editForm.phone}
+              onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+            />
+            <Input
+              label="Email Address"
+              type="email"
+              placeholder="service@vendor.com"
+              value={editForm.email}
+              onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Input
+              label="Insurance (COI) Expiry Date"
+              type="date"
+              value={editForm.coiExpiry}
+              onChange={(e) => setEditForm({ ...editForm, coiExpiry: e.target.value })}
+            />
+            <Select
+              label="COI Verification Status"
+              value={editForm.coiStatus || 'Valid'}
+              options={['Valid', 'Expiring Soon', 'Expired']}
+              onChange={(e) => setEditForm({ ...editForm, coiStatus: e.target.value })}
+            />
+            <Select
+              label="Vendor Rating"
+              value={String(editForm.rating || '5.0')}
+              options={['5.0', '4.8', '4.5', '4.0', '3.5', '3.0']}
+              onChange={(e) => setEditForm({ ...editForm, rating: parseFloat(e.target.value) || 5.0 })}
+            />
+          </div>
+
+          <Input
+            label="Business Address"
+            placeholder="e.g. 142 Atlantic Ave, Brooklyn, NY"
+            value={editForm.address}
+            onChange={(e) => setEditForm({ ...editForm, address: e.target.value })}
+          />
+
+          <Input
+            label="Internal Notes / Service Scope"
+            placeholder="Specialized equipment, emergency dispatch rates, key codes..."
+            value={editForm.notes}
+            onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
           />
         </form>
       </Modal>
@@ -808,19 +984,11 @@ export default function VendorList() {
 
             {/* Financial & Compliance */}
             <div className="p-4 bg-white rounded-2xl border border-gray-200 space-y-3">
-              <p className="font-bold text-gray-900 text-sm">Payment &amp; Tax Compliance</p>
+              <p className="font-bold text-gray-900 text-sm">Payment &amp; Financials</p>
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <span className="text-gray-400 block text-[10px] uppercase font-bold">Payment Terms</span>
-                  <span className="font-bold text-gray-900">{selectedVendor.paymentTerms}</span>
-                </div>
                 <div>
                   <span className="text-gray-400 block text-[10px] uppercase font-bold">Payment Method</span>
                   <span className="font-bold text-gray-900">{selectedVendor.paymentMethod}</span>
-                </div>
-                <div>
-                  <span className="text-gray-400 block text-[10px] uppercase font-bold">Tax ID / EIN</span>
-                  <span className="font-mono font-bold text-gray-900">{selectedVendor.taxId || 'XX-XXXXXXX'}</span>
                 </div>
                 <div>
                   <span className="text-gray-400 block text-[10px] uppercase font-bold">Total Paid YTD</span>
@@ -848,6 +1016,16 @@ export default function VendorList() {
                 }}
               >
                 Pay This Vendor Now
+              </Button>
+              <Button
+                variant="secondary"
+                className="w-full"
+                icon={Pencil}
+                onClick={() => {
+                  openEditModal(selectedVendor);
+                }}
+              >
+                Edit Vendor Profile
               </Button>
               <button
                 type="button"

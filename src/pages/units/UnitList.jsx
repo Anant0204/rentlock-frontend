@@ -1,10 +1,11 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Download, Upload } from 'lucide-react';
+import { Plus, Download, Upload, Trash2, AlertTriangle } from 'lucide-react';
 import Table from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
+import Modal from '../../components/ui/Modal';
 import apiClient from '../../services/apiClient';
-import { getUnits } from '../../data/mockUnits';
+import { getUnits, deleteUnit } from '../../data/mockUnits';
 import { getProperties } from '../../data/mockProperties';
 import { formatCurrency, getStatusColor } from '../../utils/formatters';
 import { useTable } from '../../hooks/useTable';
@@ -17,9 +18,12 @@ export default function UnitList() {
   const [activeTab, setActiveTab] = useState('All');
   const [propertyFilter, setPropertyFilter] = useState('All');
   const [allUnits, setAllUnits] = useState(() => getUnits());
+  const [unitToDelete, setUnitToDelete] = useState(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const properties = getProperties().filter((p) => !p.archived);
 
-  useEffect(() => {
+  const fetchUnits = () => {
     apiClient.get('/units?limit=100').then((res) => {
       const items = res?.items || res;
       if (Array.isArray(items)) {
@@ -27,7 +31,33 @@ export default function UnitList() {
         localStorage.setItem('custom_units', JSON.stringify(items));
       }
     }).catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchUnits();
   }, []);
+
+  const confirmDelete = (unit) => {
+    setUnitToDelete(unit);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleDeleteUnit = async () => {
+    if (!unitToDelete) return;
+    try {
+      setIsDeleting(true);
+      await deleteUnit(unitToDelete.id);
+      setAllUnits((prev) => prev.filter((u) => String(u.id) !== String(unitToDelete.id)));
+      toast.success(`Unit ${unitToDelete.unitNumber} deleted successfully`);
+      setIsDeleteModalOpen(false);
+      setUnitToDelete(null);
+    } catch (err) {
+      console.error('Delete unit error:', err);
+      toast.error(err.response?.data?.message || err.message || `Failed to delete unit ${unitToDelete.unitNumber}`);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const filteredData = useMemo(() => {
     const q = (searchQuery || '').toLowerCase();
@@ -146,8 +176,45 @@ export default function UnitList() {
         onToggleSelectAll={table.toggleSelectAll}
         allSelected={table.allSelected}
         onRowClick={(row) => navigate(`/units/${row.id}`)}
+        onDelete={confirmDelete}
         emptyMessage="No units match your current filters"
       />
+
+      {/* Delete Unit Confirmation Modal */}
+      <Modal
+        isOpen={isDeleteModalOpen}
+        onClose={() => !isDeleting && setIsDeleteModalOpen(false)}
+        title="Delete Unit"
+        size="sm"
+        footer={
+          <div className="flex items-center justify-end gap-2 w-full">
+            <Button variant="secondary" disabled={isDeleting} onClick={() => setIsDeleteModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="danger" disabled={isDeleting} onClick={handleDeleteUnit} icon={Trash2} className="bg-rose-600 hover:bg-rose-700 text-white">
+              {isDeleting ? 'Deleting...' : 'Delete Unit'}
+            </Button>
+          </div>
+        }
+      >
+        <div className="flex flex-col items-center gap-3 py-3 text-center">
+          <div className="w-14 h-14 rounded-full bg-rose-50 flex items-center justify-center">
+            <AlertTriangle className="w-7 h-7 text-rose-500" />
+          </div>
+          <p className="text-gray-900 font-black text-base">
+            Delete Unit {unitToDelete?.unitNumber}?
+          </p>
+          <p className="text-gray-500 text-xs leading-relaxed">
+            {unitToDelete?.tenant ? (
+              <>
+                This unit is currently occupied by <strong>{unitToDelete.tenant}</strong>. Deleting will permanently remove this unit and clean up associated records.
+              </>
+            ) : (
+              'This unit will be permanently removed from inventory. This action cannot be undone.'
+            )}
+          </p>
+        </div>
+      </Modal>
     </div>
   );
 }

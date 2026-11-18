@@ -4,6 +4,8 @@ class ApiClient {
   constructor() {
     this.baseUrl = API_BASE_URL;
     this.inFlightRequests = new Map();
+    this.isRefreshing = false;
+    this.refreshSubscribers = [];
   }
 
   getHeaders(customHeaders = {}) {
@@ -18,6 +20,50 @@ class ApiClient {
     return headers;
   }
 
+  onRefreshed(token) {
+    this.refreshSubscribers.forEach((cb) => cb(token, null));
+    this.refreshSubscribers = [];
+  }
+
+  onRefreshFailed(err) {
+    this.refreshSubscribers.forEach((cb) => cb(null, err));
+    this.refreshSubscribers = [];
+  }
+
+  async refreshToken() {
+    const refreshToken = localStorage.getItem('pm_refresh_token');
+    if (!refreshToken) {
+      throw new Error('No refresh token available');
+    }
+
+    const refreshUrl = `${this.baseUrl}/auth/refresh-token`;
+    const response = await fetch(refreshUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Refresh failed with HTTP ${response.status}`);
+    }
+
+    const json = await response.json().catch(() => ({}));
+    const data = json.data || json;
+    const newAccessToken = data?.tokens?.accessToken || data?.accessToken;
+    const newRefreshToken = data?.tokens?.refreshToken || data?.refreshToken;
+
+    if (!newAccessToken) {
+      throw new Error('New access token missing in refresh response');
+    }
+
+    localStorage.setItem('pm_token', newAccessToken);
+    if (newRefreshToken) {
+      localStorage.setItem('pm_refresh_token', newRefreshToken);
+    }
+
+    return newAccessToken;
+  }
+
   async request(endpoint, options = {}) {
     const url = endpoint.startsWith('http')
       ? endpoint
@@ -30,11 +76,47 @@ class ApiClient {
 
     const response = await fetch(url, config);
 
-    // Handle 401 Unauthorized
-    if (response.status === 401) {
-      // If token expired, clear invalid session
-      if (localStorage.getItem('pm_token')) {
-        console.warn('⚠️ API session expired (401). Clearing stale token.');
+    // Handle 401 Unauthorized with silent auto-refresh
+    const isAuthEndpoint = endpoint.includes('/auth/login') || endpoint.includes('/auth/refresh-token');
+    if (response.status === 401 && !options._retry && !isAuthEndpoint) {
+      options._retry = true;
+
+      const refreshToken = localStorage.getItem('pm_refresh_token');
+      if (refreshToken) {
+        if (!this.isRefreshing) {
+          this.isRefreshing = true;
+          try {
+            const newToken = await this.refreshToken();
+            this.isRefreshing = false;
+            this.onRefreshed(newToken);
+            return this.request(endpoint, options);
+          } catch (refreshErr) {
+            this.isRefreshing = false;
+            this.onRefreshFailed(refreshErr);
+            console.warn('⚠️ Session refresh failed, clearing stale session:', refreshErr.message);
+            localStorage.removeItem('pm_token');
+            localStorage.removeItem('pm_refresh_token');
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('auth:session-expired'));
+            }
+          }
+        } else {
+          // If a refresh is already in progress, queue and retry once resolved
+          return new Promise((resolve, reject) => {
+            this.refreshSubscribers.push((token, err) => {
+              if (err || !token) {
+                reject(err || new Error('Session expired'));
+              } else {
+                resolve(this.request(endpoint, options));
+              }
+            });
+          });
+        }
+      } else {
+        localStorage.removeItem('pm_token');
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('auth:session-expired'));
+        }
       }
     }
 

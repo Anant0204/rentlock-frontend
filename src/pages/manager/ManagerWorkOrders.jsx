@@ -39,24 +39,36 @@ export default function ManagerWorkOrders() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
   useEffect(() => {
+    const local = getManagerWorkspaceState();
+    setState(local);
+
     apiClient.get('/maintenance?limit=100').then((res) => {
       const liveTickets = res?.items || res;
-      if (Array.isArray(liveTickets) && liveTickets.length > 0) {
+      if (Array.isArray(liveTickets)) {
+        const allowedPropIds = new Set(local.properties.map((p) => String(p.id)));
+        const allowedPropNames = new Set(local.properties.map((p) => (p.name || '').trim().toLowerCase()));
+
+        const scopedTickets = liveTickets.filter(
+          (t) =>
+            allowedPropIds.has(String(t.propertyId)) ||
+            allowedPropNames.has((t.propertyName || '').trim().toLowerCase())
+        );
+
         setState((prev) => ({
           ...prev,
-          workOrders: liveTickets.map((t) => ({
+          workOrders: scopedTickets.map((t) => ({
             id: String(t.ticketNumber || t.id),
             title: t.title || t.issue,
             description: t.description || 'Maintenance issue logged in resident portal',
             category: t.category || 'Plumbing',
-            propertyId: String(t.propertyId || 'sunrise-residency'),
-            propertyName: t.propertyName || 'Sunrise Residency',
-            unitNumber: t.unitNumber || 'A-204',
-            residentName: t.tenantName || 'Rebecca Miller',
+            propertyId: String(t.propertyId || ''),
+            propertyName: t.propertyName || '',
+            unitNumber: t.unitNumber || '',
+            residentName: t.tenantName || 'Resident',
             residentPhone: '+1 (347) 555-0118',
             priority: t.priority === 'High' || t.priority === 'Emergency' ? 'Urgent' : 'Normal',
             status: t.status === 'In_Progress' ? 'In progress' : t.status === 'Pending_Approval' ? 'Approval needed' : 'Open',
-            estimatedCost: Number(t.costEstimate || t.cost || 320),
+            estimatedCost: Number(t.costEstimate || t.cost || 0),
             createdAt: t.createdAt ? t.createdAt.slice(0, 10) : '2026-11-14',
             scheduledToday: true,
             timeline: [

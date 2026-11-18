@@ -50,33 +50,56 @@ export function getManagerWorkspaceState() {
   const activeEmail = (activeUser?.email || '').trim().toLowerCase();
   const allProps = getProperties().filter((p) => !p.archived);
 
-  // Match properties assigned to this manager
-  const assignedProps = allProps.filter((p) => {
-    const pMgr = (p.manager || '').trim().toLowerCase();
-    if (!pMgr) return false;
-
-    // 1. Direct match with manager name or email
-    if (activeName && (pMgr === activeName || pMgr === activeEmail)) return true;
-
-    // 2. Substring match
-    if (activeName && (pMgr.includes(activeName) || activeName.includes(pMgr))) return true;
-
-    // 3. User's managerData.properties array
-    if (Array.isArray(activeUser?.managerData?.properties)) {
-      if (activeUser.managerData.properties.some((pn) => pn.trim().toLowerCase() === p.name.trim().toLowerCase())) {
-        return true;
-      }
+  // Look up active user in custom_managers roster (Admin roster is single source of truth)
+  let rosterManager = null;
+  try {
+    const customManagers = JSON.parse(localStorage.getItem('custom_managers') || '[]');
+    if (Array.isArray(customManagers)) {
+      rosterManager = customManagers.find(
+        (m) =>
+          (activeEmail && m.email && m.email.trim().toLowerCase() === activeEmail) ||
+          (activeName && m.name && m.name.trim().toLowerCase() === activeName) ||
+          (activeUser?.id && m.id && String(m.id) === String(activeUser.id))
+      );
     }
+  } catch {
+    // ignore
+  }
 
-    // 4. Role manager fallback
-    if (activeUser?.role === 'manager') {
-      if (pMgr === 'manager' || pMgr.includes('manager')) return true;
-      if (pMgr === 'sarah jenkins' || pMgr.includes('sarah')) return true;
-      if (!activeName || activeName === 'manager') return true;
-    }
+  // Check explicit assigned properties from the manager roster
+  const managerRosterProps = Array.isArray(rosterManager?.properties)
+    ? rosterManager.properties
+    : Array.isArray(activeUser?.managerData?.properties)
+    ? activeUser.managerData.properties
+    : null;
 
-    return false;
-  });
+  // Match properties assigned to this manager with strict isolation
+  let assignedProps = [];
+  if (Array.isArray(managerRosterProps)) {
+    // Explicit roster assignment list
+    const allowedNames = new Set(
+      managerRosterProps.map((n) =>
+        (typeof n === 'string' ? n.trim().toLowerCase() : String(n?.name || '').trim().toLowerCase())
+      )
+    );
+    assignedProps = allProps.filter((p) => {
+      const pName = (p.name || '').trim().toLowerCase();
+      const pId = String(p.id);
+      return allowedNames.has(pName) || allowedNames.has(pId);
+    });
+  } else {
+    // Fallback if not registered in manager roster: match strictly by exact manager name, email, or managerId
+    assignedProps = allProps.filter((p) => {
+      const pMgr = (p.manager || '').trim().toLowerCase();
+      const pMgrId = p.managerId ? String(p.managerId) : '';
+      const uId = activeUser?.id ? String(activeUser.id) : '';
+
+      if (activeName && pMgr && pMgr === activeName) return true;
+      if (activeEmail && pMgr && pMgr === activeEmail) return true;
+      if (uId && pMgrId && pMgrId === uId) return true;
+      return false;
+    });
+  }
 
   // Base state: load from localStorage if available, or clone initial
   let base = cloneInitialManager();
@@ -84,7 +107,7 @@ export function getManagerWorkspaceState() {
     const raw = localStorage.getItem(MANAGER_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed?.workOrders) && Array.isArray(parsed?.threads)) {
+      if (parsed && typeof parsed === 'object') {
         base = parsed;
       }
     }
@@ -131,13 +154,51 @@ export function getManagerWorkspaceState() {
 
   base.properties = mappedProps;
 
-  if (activeUser?.role === 'manager' && activeUser?.name) {
-    base.manager = {
-      name: activeUser.name,
-      roleLabel: 'Property Manager',
-      spendingLimit: activeUser.managerData?.spendingCap || MANAGER_APPROVAL_LIMIT,
-    };
+  // Strict isolation for all associated manager workspace data
+  if (mappedProps.length === 0) {
+    base.properties = [];
+    base.tenants = [];
+    base.workOrders = [];
+    base.schedule = [];
+    base.recentActivity = [];
+    base.threads = [];
+  } else {
+    const allowedIds = new Set(mappedProps.map((p) => String(p.id)));
+    const allowedNames = new Set(mappedProps.map((p) => p.name?.trim().toLowerCase()));
+
+    if (Array.isArray(base.tenants)) {
+      base.tenants = base.tenants.filter(
+        (t) => allowedIds.has(String(t.propertyId)) || allowedNames.has((t.propertyName || '').trim().toLowerCase())
+      );
+    }
+    if (Array.isArray(base.workOrders)) {
+      base.workOrders = base.workOrders.filter(
+        (w) => allowedIds.has(String(w.propertyId)) || allowedNames.has((w.propertyName || '').trim().toLowerCase())
+      );
+    }
+    if (Array.isArray(base.schedule)) {
+      base.schedule = base.schedule.filter(
+        (s) => allowedIds.has(String(s.propertyId)) || allowedNames.has((s.property || '').trim().toLowerCase())
+      );
+    }
+    if (Array.isArray(base.recentActivity)) {
+      base.recentActivity = base.recentActivity.filter(
+        (a) => !a.propertyId || allowedIds.has(String(a.propertyId))
+      );
+    }
+    if (Array.isArray(base.threads)) {
+      base.threads = base.threads.filter(
+        (t) => !t.propertyId || allowedIds.has(String(t.propertyId))
+      );
+    }
   }
+
+  base.manager = {
+    name: activeUser?.name || rosterManager?.name || 'Property Manager',
+    email: activeUser?.email || rosterManager?.email || '',
+    roleLabel: 'Property Manager',
+    spendingLimit: rosterManager?.spendingCap || activeUser?.managerData?.spendingCap || MANAGER_APPROVAL_LIMIT,
+  };
 
   if (!Array.isArray(base.threads) || base.threads.length === 0) {
     base.threads = cloneInitialManager().threads;

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../../services/apiClient';
 import { Plus, X, AlertTriangle, Wrench, MessageSquare, Camera } from 'lucide-react';
@@ -14,7 +14,7 @@ import {
   readFilesAsDataUrls,
   REPAIR_CATEGORIES,
   ACCESS_TIME_OPTIONS,
-  ISSUE_LOCATION_OPTIONS,
+  getIssueLocationOptions,
 } from '../../data/tenantPortalData';
 
 export default function TenantWorkOrder() {
@@ -22,7 +22,7 @@ export default function TenantWorkOrder() {
   const fileInputRef = useRef(null);
 
   const [portalState, setPortalState] = useState(() => getTenantPortalState());
-  const [unit, setUnit] = useState(portalState.household.unitLabel);
+  const [unit, setUnit] = useState(portalState?.household?.unitLabel || 'Assigned Unit');
   const [category, setCategory] = useState('Plumbing');
   const [description, setDescription] = useState('');
   const [photos, setPhotos] = useState([]);
@@ -32,6 +32,24 @@ export default function TenantWorkOrder() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
+    // 1. Sync live tenant unit from backend
+    apiClient.get('/portal/tenant/balance').then((liveBal) => {
+      if (liveBal?.tenant) {
+        const liveUnit = `${liveBal.tenant.propertyName} · Unit ${liveBal.tenant.unitNumber}`;
+        setUnit((prev) => (prev === 'Assigned Unit' || prev.includes('A-204') ? liveUnit : prev));
+        setPortalState((prev) => ({
+          ...prev,
+          household: {
+            ...prev?.household,
+            unitLabel: liveUnit,
+            propertyName: liveBal.tenant.propertyName,
+            unitCode: liveBal.tenant.unitNumber,
+          },
+        }));
+      }
+    }).catch(() => {});
+
+    // 2. Load tickets
     apiClient.get('/maintenance?limit=100').then((res) => {
       const liveTickets = Array.isArray(res) ? res : res?.items;
       if (Array.isArray(liveTickets) && liveTickets.length > 0) {
@@ -50,6 +68,10 @@ export default function TenantWorkOrder() {
       }
     }).catch(() => {});
   }, []);
+
+  const issueLocations = useMemo(() => {
+    return getIssueLocationOptions(portalState);
+  }, [portalState]);
 
   const handlePhotoChange = async (e) => {
     const loaded = await readFilesAsDataUrls(e.target.files, 4 - photos.length);
@@ -106,10 +128,10 @@ export default function TenantWorkOrder() {
         <Card padding="p-6" className="lg:col-span-7 space-y-5">
           <Select
             label="WHERE IS THE ISSUE?"
-            options={ISSUE_LOCATION_OPTIONS}
+            options={issueLocations}
             value={unit}
             onChange={(e) => setUnit(e.target.value)}
-            placeholder="Select unit"
+            placeholder="Select unit area"
           />
 
           <div>

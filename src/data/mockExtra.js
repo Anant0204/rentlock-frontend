@@ -17,12 +17,15 @@ export const getManagers = () => {
 
 export const addManager = (manager) => {
   if (manager && manager.email) {
-    apiClient.post('/managers', {
+    const payload = {
       name: manager.name,
       email: manager.email,
       phone: manager.phone,
       password: manager.password || 'demo123',
-    }).catch((err) => {
+      properties: manager.properties || [],
+      assignedProperties: manager.properties || [],
+    };
+    apiClient.post('/managers', payload).catch((err) => {
       console.warn('[API] Create manager in backend failed:', err.message);
     });
   }
@@ -52,13 +55,35 @@ export const addManager = (manager) => {
 };
 
 export const updateManager = (id, data) => {
-  if (data && (data.email || data.name || data.password)) {
-    apiClient.post('/managers', {
+  if (data) {
+    const payload = {
       name: data.name,
       email: data.email,
       phone: data.phone,
       password: data.password || 'demo123',
-    }).catch(() => {});
+      properties: data.properties || [],
+      assignedProperties: data.properties || [],
+    };
+    if (id && !isNaN(Number(id))) {
+      apiClient.put(`/managers/${id}`, payload).catch(() => {
+        apiClient.post('/managers', payload).catch(() => {});
+      });
+    } else {
+      apiClient.post('/managers', payload).catch(() => {});
+    }
+
+    if (Array.isArray(data.properties)) {
+      try {
+        const rawProps = localStorage.getItem('custom_properties');
+        const propList = rawProps ? JSON.parse(rawProps) : [];
+        const assignedSet = new Set(data.properties.map((p) => String(p).trim().toLowerCase()));
+        for (const p of propList) {
+          if (p.id && (assignedSet.has(String(p.name).trim().toLowerCase()) || assignedSet.has(String(p.id)))) {
+            apiClient.put(`/properties/${p.id}`, { managerId: Number(id) || undefined, manager: data.name }).catch(() => {});
+          }
+        }
+      } catch {}
+    }
   }
 
   const saved = localStorage.getItem('custom_managers');

@@ -4,7 +4,11 @@
  * and completely eliminate CORS Preflight (204) duplicate rows in the Network tab.
  */
 
-const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_LOCAL_URL || '/api/v1';
+const rawBaseUrl =
+  import.meta.env.VITE_API_BASE_URL ||
+  import.meta.env.VITE_API_LIVE_URL ||
+  import.meta.env.VITE_API_LOCAL_URL ||
+  '/api/v1';
 
 // If configured with localhost or relative path, normalize to '/api/v1' to route through Vite dev proxy
 export const API_BASE_URL =

@@ -9,7 +9,7 @@ const INITIAL_VENDORS = [];
 
 export const getVendors = () => {
   try {
-    const raw = localStorage.getItem('pm_vendors');
+    const raw = localStorage.getItem('pm_vendors') || localStorage.getItem('custom_vendors');
     if (raw) return JSON.parse(raw);
   } catch (err) {
     console.warn('Could not read vendors cache', err);
@@ -20,35 +20,71 @@ export const getVendors = () => {
 
 export const saveVendors = (vendors) => {
   localStorage.setItem('pm_vendors', JSON.stringify(vendors));
+  localStorage.setItem('custom_vendors', JSON.stringify(vendors));
 };
 
-export const addVendor = (vendor) => {
-  apiClient.post('/operations/vendors', vendor).catch(() => {});
+export const addVendor = async (vendor) => {
+  let created = null;
+  try {
+    created = await apiClient.post('/operations/vendors', {
+      name: vendor.name,
+      category: vendor.category || 'Plumbing',
+      phone: vendor.phone || '+1 (555) 000-0000',
+      email: vendor.email || `${(vendor.name || 'vendor').toLowerCase().replace(/[^a-z0-9]/g, '')}@example.com`,
+      coiStatus: vendor.coiStatus || 'Valid',
+      contactPerson: vendor.contactPerson,
+      address: vendor.address,
+      paymentMethod: vendor.paymentMethod || 'ACH Bank Transfer',
+    });
+  } catch (err) {
+    console.warn('[API] Create vendor failed:', err.message);
+  }
+
   const current = getVendors();
-  const nextId = `VND-${String(current.length + 1).padStart(3, '0')}`;
+  const nextNumeric = created?.id || (current.length > 0 ? Math.max(...current.map((v) => parseInt(String(v.id).replace(/\D/g, ''), 10) || 0)) + 1 : 1);
+  const nextId = `VND-${String(nextNumeric).padStart(3, '0')}`;
   const newVendor = {
+    ...created,
+    ...vendor,
     id: nextId,
-    rating: 5.0,
+    dbId: created?.id || nextNumeric,
+    rating: vendor.rating || 5.0,
     openWorkOrders: 0,
     ytdSpend: 0,
     status: 'Active',
     w9OnFile: true,
-    coiStatus: 'Valid',
-    paymentTerms: 'Net 30',
-    paymentMethod: 'ACH Bank Transfer',
-    ...vendor,
+    coiStatus: vendor.coiStatus || 'Valid',
+    paymentMethod: vendor.paymentMethod || 'ACH Bank Transfer',
   };
-  const updated = [newVendor, ...current];
+  const updated = [newVendor, ...current.filter((v) => String(v.id) !== nextId)];
   saveVendors(updated);
   return updated;
 };
 
-export const deleteVendor = (id) => {
+export const updateVendor = async (id, data) => {
   if (id) {
-    apiClient.delete(`/operations/vendors/${id}`).catch(() => {});
+    try {
+      await apiClient.put(`/operations/vendors/${id}`, data);
+    } catch (err) {
+      console.warn('[API] Update vendor notice:', err.message);
+    }
   }
   const current = getVendors();
-  const updated = current.filter((v) => v.id !== id);
+  const updated = current.map((v) => (String(v.id) === String(id) ? { ...v, ...data } : v));
+  saveVendors(updated);
+  return updated;
+};
+
+export const deleteVendor = async (id) => {
+  if (id) {
+    try {
+      await apiClient.delete(`/operations/vendors/${id}`);
+    } catch (err) {
+      console.warn('[API] Delete vendor notice:', err.message);
+    }
+  }
+  const current = getVendors();
+  const updated = current.filter((v) => String(v.id) !== String(id));
   saveVendors(updated);
   return updated;
 };
@@ -60,7 +96,7 @@ const INITIAL_PARKING = [];
 
 export const getParkingStalls = () => {
   try {
-    const raw = localStorage.getItem('pm_parking');
+    const raw = localStorage.getItem('pm_parking') || localStorage.getItem('custom_parking_stalls');
     if (raw) return JSON.parse(raw);
   } catch (err) {
     console.warn('Could not read parking cache', err);
@@ -71,11 +107,17 @@ export const getParkingStalls = () => {
 
 export const saveParkingStalls = (stalls) => {
   localStorage.setItem('pm_parking', JSON.stringify(stalls));
+  localStorage.setItem('custom_parking_stalls', JSON.stringify(stalls));
 };
 
 export const assignParkingStall = (stallId, data) => {
   if (stallId) {
-    apiClient.patch(`/operations/parking/${stallId}/assign`, data).catch(() => {});
+    const rawPlate = data.licensePlate || data.vehiclePlate;
+    apiClient.patch(`/operations/parking/${stallId}/assign`, {
+      tenantId: data.tenantId,
+      vehiclePlate: rawPlate,
+      ...data,
+    }).catch(() => {});
   }
   const current = getParkingStalls();
   const updated = current.map((stall) => {
@@ -99,7 +141,7 @@ export const addParkingStall = (stall) => {
   const newStall = {
     id: `STALL-${String(nextNum).padStart(3, '0')}`,
     spotNumber: stall.spotNumber || `P-1${String(nextNum).padStart(2, '0')}`,
-    propertyName: 'Sunrise Residency',
+    propertyName: stall.propertyName || 'Sunrise Residency',
     lotLocation: stall.lotLocation || 'Sub-Level 1 (North Garage)',
     spotType: stall.spotType || 'Standard Covered',
     assignedResident: stall.assignedResident || null,

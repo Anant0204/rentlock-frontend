@@ -34,7 +34,7 @@ export default function TenantMessages() {
           const mapped = items.map((c, idx) => ({
             id: String(c.id || c.broadcastNumber || idx + 1),
             subject: c.title,
-            householdUnit: prev.household.shortUnitLabel || 'A-204',
+            householdUnit: prev?.household?.shortUnitLabel || 'A-204',
             unreadCount: 0,
             messages: [
               {

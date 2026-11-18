@@ -1,8 +1,8 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Building2, MapPin, Layers, DollarSign, ClipboardList, CheckCircle2,
-  ChevronRight, ChevronLeft, Plus, Trash2, Sparkles, Upload
+  Building2, MapPin, Layers, DollarSign, CheckCircle2,
+  ChevronRight, ChevronLeft, Plus, Trash2, Sparkles, Upload, Bed, Bath
 } from 'lucide-react';
 import PageHeader from '../../components/shared/PageHeader';
 import Card from '../../components/ui/Card';
@@ -11,9 +11,10 @@ import Select from '../../components/ui/Select';
 import Button from '../../components/ui/Button';
 import FileUpload from '../../components/ui/FileUpload';
 import Badge from '../../components/ui/Badge';
+import Modal from '../../components/ui/Modal';
 import { AMENITIES, US_STATES, UNIT_TYPES } from '../../utils/constants';
 import { formatCurrency } from '../../utils/formatters';
-import { getOwners, getManagers } from '../../data/mockExtra';
+import { getOwners, getManagers, addOwner, addManager, updateManager } from '../../data/mockExtra';
 import apiClient from '../../services/apiClient';
 import toast from 'react-hot-toast';
 
@@ -22,16 +23,40 @@ const STEPS = [
   'Location & Ownership',
   'Building & Units',
   'Property Financials',
-  'Requirements & Compliance',
   'Review Property',
 ];
 
 export default function AddProperty() {
   const navigate = useNavigate();
-  const ownersList = getOwners().filter((o) => !o.archived);
-  const managersList = useMemo(() => getManagers().filter((m) => !m.archived), []);
+  const [ownersList, setOwnersList] = useState(() => getOwners().filter((o) => !o.archived));
+  const [managersList, setManagersList] = useState(() => getManagers().filter((m) => !m.archived));
   const [currentStep, setCurrentStep] = useState(0);
   const [savedPropertyId, setSavedPropertyId] = useState(null);
+
+  // In-place Add Owner modal state
+  const [isCreateOwnerOpen, setIsCreateOwnerOpen] = useState(false);
+  const [newOwnerForm, setNewOwnerForm] = useState({
+    name: '',
+    ownerType: 'Individual',
+    email: '',
+    phone: '',
+    mailingAddress: '',
+    password: '',
+    status: 'Active',
+  });
+
+  // In-place Add Manager modal state
+  const [isCreateManagerOpen, setIsCreateManagerOpen] = useState(false);
+  const [newManagerForm, setNewManagerForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    password: '',
+    spendingCap: 1000,
+    employmentType: 'Full-Time',
+    shift: 'Day (8 AM–5 PM)',
+    status: 'Active',
+  });
 
   const [form, setForm] = useState({
     name: '',
@@ -44,8 +69,6 @@ export default function AddProperty() {
     state: 'NY',
     zip: '',
     country: 'United States',
-    county: '',
-    parcelId: '',
     manager: managersList[0]?.name || 'Sarah Jenkins',
     managementStartDate: '2026-11-15',
     buildingName: 'Main Building',
@@ -69,13 +92,9 @@ export default function AddProperty() {
   ]);
   const [selectedAmenities, setSelectedAmenities] = useState(['Parking', 'Controlled Access']);
   const [unitInventory, setUnitInventory] = useState([]);
-  const [newUnit, setNewUnit] = useState({ unitNumber: 'A-101', floor: '1', type: '2 BD / 1 BA', size: '900', rent: '2100' });
+  const [newUnit, setNewUnit] = useState({ unitNumber: 'A-101', floor: '1', beds: '2', baths: '1', type: '2 BD / 1 BA', size: '900', rent: '2100' });
   const [improvements, setImprovements] = useState([]);
   const [newImp, setNewImp] = useState({ item: '', date: '', cost: '' });
-  const [requirements, setRequirements] = useState([
-    { id: 1, name: 'Building Property & Liability Insurance', category: 'Insurance', assignee: 'Robert King', dueDate: '2026-12-31', recurrence: 'Annual', reminders: [90, 60, 30, 7] },
-  ]);
-  const [newReq, setNewReq] = useState({ name: '', category: 'Insurance', assignee: 'Sarah Jenkins', dueDate: '', recurrence: 'Annual', reminders: [90, 60, 30, 7] });
 
   const update = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
 
@@ -109,10 +128,102 @@ export default function AddProperty() {
     setOwnershipRows((prev) => [...prev, { ownerId: ownersList[1]?.id || 2, name: ownersList[1]?.name || 'Claire Bennett', share: remaining }]);
   };
 
+  const handleOpenCreateOwner = () => {
+    setNewOwnerForm({
+      name: '',
+      ownerType: 'Individual',
+      email: '',
+      phone: '+1 (212) 555-0188',
+      mailingAddress: '',
+      password: '',
+      status: 'Active',
+    });
+    setIsCreateOwnerOpen(true);
+  };
+
+  const handleSaveNewOwner = () => {
+    if (!newOwnerForm.name.trim() || !newOwnerForm.email.trim()) {
+      return toast.error('Legal Owner Name and Email are required.');
+    }
+    if (!newOwnerForm.password || newOwnerForm.password.trim().length < 4) {
+      return toast.error('Please create an owner login password (minimum 4 characters).');
+    }
+
+    const created = addOwner({
+      name: newOwnerForm.name.trim(),
+      ownerType: newOwnerForm.ownerType,
+      email: newOwnerForm.email.trim(),
+      phone: newOwnerForm.phone.trim(),
+      mailingAddress: newOwnerForm.mailingAddress.trim(),
+      password: newOwnerForm.password.trim(),
+      status: newOwnerForm.status,
+      properties: [],
+      allocations: [],
+    });
+
+    const refreshed = getOwners().filter((o) => !o.archived);
+    setOwnersList(refreshed);
+
+    const remaining = Math.max(0, 100 - ownershipTotal);
+    setOwnershipRows((prev) => {
+      if (prev.length === 1 && (!prev[0].name || prev[0].name === 'Claire Bennett')) {
+        return [{ ownerId: created.id, name: created.name, share: 100 }];
+      }
+      return [...prev, { ownerId: created.id, name: created.name, share: remaining > 0 ? remaining : 10 }];
+    });
+
+    setIsCreateOwnerOpen(false);
+    toast.success(`Owner ${created.name} created and added to property allocation!`);
+  };
+
+  const handleOpenCreateManager = () => {
+    setNewManagerForm({
+      name: '',
+      email: '',
+      phone: '+1 (718) 555-0192',
+      password: '',
+      spendingCap: 1000,
+      employmentType: 'Full-Time',
+      shift: 'Day (8 AM–5 PM)',
+      status: 'Active',
+    });
+    setIsCreateManagerOpen(true);
+  };
+
+  const handleSaveNewManager = () => {
+    if (!newManagerForm.name.trim() || !newManagerForm.email.trim()) {
+      return toast.error('Manager Full Name and Email are required.');
+    }
+    if (!newManagerForm.password || newManagerForm.password.trim().length < 4) {
+      return toast.error('Please create a manager login password (minimum 4 characters).');
+    }
+
+    const created = addManager({
+      name: newManagerForm.name.trim(),
+      email: newManagerForm.email.trim(),
+      phone: newManagerForm.phone.trim(),
+      password: newManagerForm.password.trim(),
+      spendingCap: Number(newManagerForm.spendingCap) || 1000,
+      employmentType: newManagerForm.employmentType,
+      shift: newManagerForm.shift,
+      status: newManagerForm.status,
+      properties: [form.name].filter(Boolean),
+    });
+
+    const refreshed = getManagers().filter((m) => !m.archived);
+    setManagersList(refreshed);
+    update('manager', created.name);
+
+    setIsCreateManagerOpen(false);
+    toast.success(`Manager ${created.name} created and assigned!`);
+  };
+
   const addUnitRow = async () => {
     const unitNum = (newUnit.unitNumber || '').trim() || `A-${101 + unitInventory.length}`;
     const floorNum = Number(newUnit.floor) || 1;
-    const typeStr = newUnit.type || '2 BD / 1 BA';
+    const bedsNum = Number(newUnit.beds) || 2;
+    const bathsNum = Number(newUnit.baths) || 1;
+    const typeStr = `${bedsNum} BD / ${bathsNum} BA`;
     const sizeNum = Number(newUnit.size) || 900;
     const rentNum = Number(newUnit.rent) || 2100;
 
@@ -120,6 +231,8 @@ export default function AddProperty() {
       id: Date.now(),
       unitNumber: unitNum,
       floor: floorNum,
+      beds: bedsNum,
+      baths: bathsNum,
       type: typeStr,
       size: sizeNum,
       rent: rentNum,
@@ -164,6 +277,8 @@ export default function AddProperty() {
         propertyId: currentPropId || undefined,
         unitNumber: unitNum,
         floor: floorNum,
+        bedrooms: bedsNum,
+        bathrooms: bathsNum,
         sqft: sizeNum,
         rentAmount: rentNum,
         depositAmount: rentNum,
@@ -222,12 +337,6 @@ export default function AddProperty() {
     setNewImp({ item: '', date: '', cost: '' });
   };
 
-  const addRequirement = () => {
-    if (!newReq.name || !newReq.dueDate) return toast.error('Requirement name & due date required');
-    setRequirements((prev) => [...prev, { id: Date.now(), ...newReq, status: 'Upcoming' }]);
-    setNewReq({ name: '', category: 'Insurance', assignee: 'Sarah Jenkins', dueDate: '', recurrence: 'Annual', reminders: [90, 60, 30, 7] });
-  };
-
   const isStepValid = () => {
     if (currentStep === 0) return Boolean(form.name && form.code && form.type);
     if (currentStep === 1) {
@@ -252,8 +361,6 @@ export default function AddProperty() {
       state: form.state || 'NY',
       zip: form.zip || '11215',
       country: form.country,
-      county: form.county,
-      parcelId: form.parcelId,
       floors: Number(form.floors) || 1,
       totalUnits: unitInventory.length,
       occupiedUnits: 0,
@@ -280,7 +387,6 @@ export default function AddProperty() {
         mortgageBalance: Number(form.mortgageBalance) || 0,
         improvements,
       },
-      requirements,
       image: form.image,
       createdAt: new Date().toISOString().split('T')[0],
     };
@@ -302,26 +408,40 @@ export default function AddProperty() {
 
     // 2. Call backend API to persist property & units in MySQL
     try {
+      const primaryOwner = ownershipRows[0];
+      const payload = {
+        name: newProperty.name,
+        type: newProperty.type,
+        address: fullAddress,
+        city: newProperty.city,
+        state: newProperty.state,
+        zipCode: newProperty.zip,
+        manager: form.manager,
+        owner: primaryOwner?.name,
+        ownerId: primaryOwner?.ownerId,
+        units: unitInventory,
+      };
+
       if (savedPropertyId) {
-        await apiClient.put(`/properties/${savedPropertyId}`, {
-          name: newProperty.name,
-          type: newProperty.type,
-          address: fullAddress,
-          city: newProperty.city,
-          state: newProperty.state,
-          zipCode: newProperty.zip,
-        });
+        await apiClient.put(`/properties/${savedPropertyId}`, payload);
       } else {
-        await apiClient.post('/properties', {
-          name: newProperty.name,
-          type: newProperty.type,
-          address: fullAddress,
-          city: newProperty.city,
-          state: newProperty.state,
-          zipCode: newProperty.zip,
-          units: unitInventory,
-        });
+        await apiClient.post('/properties', payload);
       }
+
+      // Associate property with assigned manager in roster
+      try {
+        const mgrList = getManagers();
+        const currentMgr = mgrList.find((m) => m.name.toLowerCase() === (form.manager || '').toLowerCase());
+        if (currentMgr) {
+          const existingProps = currentMgr.properties || [];
+          if (!existingProps.includes(newProperty.name)) {
+            updateManager(currentMgr.id, {
+              ...currentMgr,
+              properties: [...existingProps, newProperty.name],
+            });
+          }
+        }
+      } catch {}
     } catch (apiErr) {
       console.warn('[AddProperty] API save fallback:', apiErr.message);
     }
@@ -341,14 +461,14 @@ export default function AddProperty() {
     else handleSave(false);
   };
 
-  const stepIcons = [Building2, MapPin, Layers, DollarSign, ClipboardList, CheckCircle2];
+  const stepIcons = [Building2, MapPin, Layers, DollarSign, CheckCircle2];
   const StepIcon = stepIcons[currentStep] || Building2;
 
   return (
     <div className="max-w-screen-2xl mx-auto">
       <PageHeader
         title="Add New Property"
-        subtitle={`Step ${currentStep + 1} of 6: ${STEPS[currentStep]}`}
+        subtitle={`Step ${currentStep + 1} of ${STEPS.length}: ${STEPS[currentStep]}`}
         breadcrumbs={[
           { label: 'Dashboard', path: '/dashboard' },
           { label: 'Properties', path: '/properties' },
@@ -415,8 +535,6 @@ export default function AddProperty() {
                   <Input label="City" required placeholder="Brooklyn" value={form.city} onChange={(e) => update('city', e.target.value)} />
                   <Select label="State" required options={US_STATES} value={form.state} onChange={(e) => update('state', e.target.value)} />
                   <Input label="ZIP Code" required placeholder="11215" value={form.zip} onChange={(e) => update('zip', e.target.value)} />
-                  <Input label="County (Optional)" placeholder="Kings County" value={form.county} onChange={(e) => update('county', e.target.value)} />
-                  <Input label="Parcel / Tax ID (Optional)" placeholder="BLK-1042-LOT-18" value={form.parcelId} onChange={(e) => update('parcelId', e.target.value)} />
                 </div>
 
                 {/* Ownership Allocation */}
@@ -429,7 +547,7 @@ export default function AddProperty() {
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => navigate('/owners?add=true')}
+                        onClick={handleOpenCreateOwner}
                         className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer"
                       >
                         + Create New Owner
@@ -476,8 +594,34 @@ export default function AddProperty() {
 
                 {/* Management Assignment */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                  <Select label="Assigned Manager" required options={managersList.map((m) => m.name)} value={form.manager} onChange={(e) => update('manager', e.target.value)} />
-                  <Input label="Management Start Date" required type="date" value={form.managementStartDate} onChange={(e) => update('managementStartDate', e.target.value)} />
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-[13px] font-bold text-gray-700">
+                        Assigned Manager <span className="text-red-500">*</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleOpenCreateManager}
+                        className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer"
+                      >
+                        + Create New Manager
+                      </button>
+                    </div>
+                    <Select
+                      options={managersList.map((m) => m.name)}
+                      value={form.manager}
+                      onChange={(e) => update('manager', e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Input
+                      label="Management Start Date"
+                      required
+                      type="date"
+                      value={form.managementStartDate}
+                      onChange={(e) => update('managementStartDate', e.target.value)}
+                    />
+                  </div>
                 </div>
               </div>
             )}
@@ -519,13 +663,96 @@ export default function AddProperty() {
                   <div className="flex items-center justify-between">
                     <h4 className="text-sm font-bold text-gray-900">Unit Inventory ({unitInventory.length})</h4>
                   </div>
-                  <div className="grid grid-cols-2 md:grid-cols-6 gap-2.5 items-end">
-                    <Input label="Unit #" placeholder="e.g. A-101" value={newUnit.unitNumber} onChange={(e) => setNewUnit({ ...newUnit, unitNumber: e.target.value })} />
-                    <Input label="Floor" type="number" value={newUnit.floor} onChange={(e) => setNewUnit({ ...newUnit, floor: e.target.value })} />
-                    <Select label="Unit Type" options={UNIT_TYPES} value={newUnit.type} onChange={(e) => setNewUnit({ ...newUnit, type: e.target.value })} />
-                    <Input label="Sq Ft" type="number" value={newUnit.size} onChange={(e) => setNewUnit({ ...newUnit, size: e.target.value })} />
-                    <Input label="Market Rent ($)" type="number" value={newUnit.rent} onChange={(e) => setNewUnit({ ...newUnit, rent: e.target.value })} />
-                    <Button type="button" icon={Plus} onClick={addUnitRow}>Add Unit</Button>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-12 gap-3 items-end">
+                    <div className="md:col-span-2">
+                      <Input
+                        label="Unit #"
+                        placeholder="e.g. A-101"
+                        value={newUnit.unitNumber}
+                        onChange={(e) => setNewUnit({ ...newUnit, unitNumber: e.target.value })}
+                      />
+                    </div>
+                    <div className="md:col-span-1">
+                      <Input
+                        label="Floor"
+                        type="number"
+                        min={0}
+                        value={newUnit.floor}
+                        onChange={(e) => setNewUnit({ ...newUnit, floor: e.target.value })}
+                      />
+                    </div>
+                    <div className="md:col-span-3">
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                        Beds / Baths
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {/* Beds manual number input */}
+                        <div className="relative flex items-center">
+                          <Bed className="w-4 h-4 text-gray-500 absolute left-3 pointer-events-none" />
+                          <input
+                            type="number"
+                            min={0}
+                            step={1}
+                            placeholder="2 Bed"
+                            value={newUnit.beds}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setNewUnit((prev) => ({
+                                ...prev,
+                                beds: val,
+                                type: `${val || 0} BD / ${prev.baths || 1} BA`,
+                              }));
+                            }}
+                            className="w-full rounded-xl border border-gray-200 bg-white pl-9 pr-2 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
+                            title="Number of Bedrooms (e.g. 1, 2, 3)"
+                          />
+                        </div>
+                        {/* Baths manual number input */}
+                        <div className="relative flex items-center">
+                          <Bath className="w-4 h-4 text-gray-500 absolute left-3 pointer-events-none" />
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.5}
+                            placeholder="1 Bath"
+                            value={newUnit.baths}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setNewUnit((prev) => ({
+                                ...prev,
+                                baths: val,
+                                type: `${prev.beds || 2} BD / ${val || 0} BA`,
+                              }));
+                            }}
+                            className="w-full rounded-xl border border-gray-200 bg-white pl-9 pr-2 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
+                            title="Number of Bathrooms (e.g. 1, 1.5, 2)"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="md:col-span-2">
+                      <Input
+                        label="Sq Ft"
+                        type="number"
+                        min={0}
+                        value={newUnit.size}
+                        onChange={(e) => setNewUnit({ ...newUnit, size: e.target.value })}
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <Input
+                        label="Market Rent ($)"
+                        type="number"
+                        min={0}
+                        value={newUnit.rent}
+                        onChange={(e) => setNewUnit({ ...newUnit, rent: e.target.value })}
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <Button type="button" icon={Plus} onClick={addUnitRow} className="w-full py-2.5">
+                        Add Unit
+                      </Button>
+                    </div>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
@@ -533,7 +760,7 @@ export default function AddProperty() {
                         <tr className="text-left text-gray-500 border-b border-gray-100">
                           <th className="py-2">Unit #</th>
                           <th className="py-2">Floor</th>
-                          <th className="py-2">Type</th>
+                          <th className="py-2">Beds / Baths</th>
                           <th className="py-2">Sq Ft</th>
                           <th className="py-2">Market Rent</th>
                           <th className="py-2 text-right">Remove</th>
@@ -544,9 +771,9 @@ export default function AddProperty() {
                           <tr key={u.id}>
                             <td className="py-2 font-bold text-gray-900">{u.unitNumber}</td>
                             <td className="py-2">{u.floor}</td>
-                            <td className="py-2">{u.type}</td>
+                            <td className="py-2 font-medium text-gray-700">{u.type || `${u.beds || 2} BD / ${u.baths || 1} BA`}</td>
                             <td className="py-2">{u.size} sq ft</td>
-                            <td className="py-2 font-semibold">{formatCurrency(u.rent)}/mo</td>
+                            <td className="py-2 font-semibold text-emerald-600">{formatCurrency(u.rent)}/mo</td>
                             <td className="py-2 text-right">
                               <button type="button" onClick={() => handleRemoveUnit(u)} className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded-lg cursor-pointer transition-colors" title="Remove from database"><Trash2 className="w-3.5 h-3.5" /></button>
                             </td>
@@ -578,70 +805,13 @@ export default function AddProperty() {
                   <Input label="Valuation Source" value={form.valuationSource} onChange={(e) => update('valuationSource', e.target.value)} />
                   <Input label="Assessed Tax Value ($)" type="number" placeholder="0" value={form.assessedValue} onChange={(e) => update('assessedValue', e.target.value)} />
                   <Input label="Tax Year" value={form.taxYear} onChange={(e) => update('taxYear', e.target.value)} />
-                  <Input label="Financing Lender (Optional)" placeholder="e.g., JPMorgan Chase CRE" value={form.lender} onChange={(e) => update('lender', e.target.value)} />
-                  <Input label="Loan # (Optional)" placeholder="LN-0000" value={form.loanNumber} onChange={(e) => update('loanNumber', e.target.value)} />
                   <Input label="Mortgage Balance ($)" type="number" placeholder="0" value={form.mortgageBalance} onChange={(e) => update('mortgageBalance', e.target.value)} />
                 </div>
-
-                <div className="border border-gray-200 rounded-2xl p-4 space-y-3">
-                  <h4 className="text-sm font-bold text-gray-900">Capital Improvements Table (Optional)</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-                    <Input label="Improvement Description" placeholder="Roof replacement" value={newImp.item} onChange={(e) => setNewImp({ ...newImp, item: e.target.value })} />
-                    <Input label="Completion Date" type="date" value={newImp.date} onChange={(e) => setNewImp({ ...newImp, date: e.target.value })} />
-                    <Input label="Cost ($)" type="number" value={newImp.cost} onChange={(e) => setNewImp({ ...newImp, cost: e.target.value })} />
-                    <Button type="button" variant="secondary" icon={Plus} onClick={addImprovement}>Add CapEx</Button>
-                  </div>
-                  {improvements.length > 0 && (
-                    <div className="divide-y divide-gray-100 text-xs pt-2">
-                      {improvements.map((imp) => (
-                        <div key={imp.id} className="py-2 flex items-center justify-between">
-                          <span className="font-semibold text-gray-800">{imp.item} ({imp.date || 'TBD'})</span>
-                          <span className="font-bold text-gray-900">{formatCurrency(imp.cost)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
               </div>
             )}
 
-            {/* STEP 5: REQUIREMENTS & COMPLIANCE (OPTIONAL) */}
+            {/* STEP 5: REVIEW PROPERTY */}
             {currentStep === 4 && (
-              <div className="space-y-5">
-                <div className="p-4 border border-gray-200 rounded-2xl space-y-4">
-                  <h4 className="text-sm font-bold text-gray-900">Add Compliance Requirement / Recurring Task</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <Input label="Requirement Name" placeholder="e.g., Elevator Safety Certificate" value={newReq.name} onChange={(e) => setNewReq({ ...newReq, name: e.target.value })} />
-                    <Select label="Category" options={['Insurance', 'Inspection', 'Recurring Maintenance']} value={newReq.category} onChange={(e) => setNewReq({ ...newReq, category: e.target.value })} />
-                    <Input label="Responsible Staff / Vendor" value={newReq.assignee} onChange={(e) => setNewReq({ ...newReq, assignee: e.target.value })} />
-                    <Input label="Due / Expiration Date" type="date" value={newReq.dueDate} onChange={(e) => setNewReq({ ...newReq, dueDate: e.target.value })} />
-                    <Select label="Recurrence" options={['Annual', 'Semi-Annual', 'Quarterly', 'Monthly', 'One-Time']} value={newReq.recurrence} onChange={(e) => setNewReq({ ...newReq, recurrence: e.target.value })} />
-                    <div className="flex items-end">
-                      <Button type="button" icon={Plus} onClick={addRequirement} className="w-full">Add Requirement</Button>
-                    </div>
-                  </div>
-                  <p className="text-xs text-gray-500">Automated reminders: <strong>90 / 60 / 30 / 7 days</strong> prior. Completing a recurring item generates the next cycle due date while retaining audit history.</p>
-                </div>
-
-                <div className="space-y-2">
-                  {requirements.map((req) => (
-                    <div key={req.id} className="flex items-center justify-between p-3.5 rounded-xl border border-gray-100 bg-gray-50/50 text-xs">
-                      <div>
-                        <p className="font-bold text-gray-900">{req.name}</p>
-                        <p className="text-gray-500">{req.category} · Assigned: {req.assignee} · {req.recurrence}</p>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <Badge variant="info">Due {req.dueDate}</Badge>
-                        <button type="button" onClick={() => setRequirements((prev) => prev.filter((r) => r.id !== req.id))} className="text-red-500 cursor-pointer"><Trash2 className="w-4 h-4" /></button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* STEP 6: REVIEW PROPERTY */}
-            {currentStep === 5 && (
               <div className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="p-4 rounded-2xl border border-gray-200 bg-gray-50/40">
@@ -655,11 +825,11 @@ export default function AddProperty() {
                   </div>
                   <div className="p-4 rounded-2xl border border-gray-200 bg-gray-50/40">
                     <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-xs font-black uppercase text-gray-500">Ownership, Units &amp; Compliance</h4>
+                      <h4 className="text-xs font-black uppercase text-gray-500">Ownership &amp; Units</h4>
                       <button type="button" onClick={() => setCurrentStep(1)} className="text-xs text-indigo-600 font-semibold cursor-pointer">Edit</button>
                     </div>
                     <p className="text-xs text-gray-700">Owners: {ownershipRows.map((o) => `${o.name} (${o.share}%)`).join(', ')}</p>
-                    <p className="text-xs text-gray-700 mt-1">Units configured: <strong>{unitInventory.length}</strong> · Requirements: <strong>{requirements.length}</strong></p>
+                    <p className="text-xs text-gray-700 mt-1">Units configured: <strong>{unitInventory.length}</strong></p>
                     <p className="text-xs text-gray-700 mt-1">Estimated Equity: <strong>{formatCurrency(estimatedEquity)}</strong></p>
                   </div>
                 </div>
@@ -683,6 +853,174 @@ export default function AddProperty() {
           </div>
         </Card>
       </div>
+
+      {/* IN-PLACE ADD OWNER MODAL (NEVER NAVIGATES AWAY) */}
+      <Modal
+        isOpen={isCreateOwnerOpen}
+        onClose={() => setIsCreateOwnerOpen(false)}
+        title="Add New Property Owner / Holding Entity"
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setIsCreateOwnerOpen(false)}>
+              Cancel
+            </Button>
+            <Button icon={CheckCircle2} onClick={handleSaveNewOwner}>
+              Create Owner Profile
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4 text-xs">
+          <div className="p-3.5 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-900 leading-relaxed">
+            <strong>PORTAL LOGIN SETUP:</strong> Create the owner profile and set their login password. The owner can sign in to the Owner Portal using their email address and this password.
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            <Input
+              label="Legal Owner / Entity Name *"
+              placeholder="e.g. Bennett Realty Holdings LLC or Rocky"
+              value={newOwnerForm.name}
+              onChange={(e) => setNewOwnerForm({ ...newOwnerForm, name: e.target.value })}
+            />
+            <Select
+              label="Owner Entity Type"
+              options={['Individual', 'LLC', 'Trust', 'Corporation']}
+              value={newOwnerForm.ownerType}
+              onChange={(e) => setNewOwnerForm({ ...newOwnerForm, ownerType: e.target.value })}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            <Input
+              label="Primary Contact Email (Login ID) *"
+              type="email"
+              placeholder="e.g. owner@example.com"
+              value={newOwnerForm.email}
+              onChange={(e) => setNewOwnerForm({ ...newOwnerForm, email: e.target.value })}
+            />
+            <Input
+              label="U.S. Phone Number"
+              placeholder="+1 (212) 555-0188"
+              value={newOwnerForm.phone}
+              onChange={(e) => setNewOwnerForm({ ...newOwnerForm, phone: e.target.value })}
+            />
+          </div>
+
+          <Input
+            label="Address"
+            placeholder="e.g. 725 Fifth Ave, Apt 24B, New York, NY 10022"
+            value={newOwnerForm.mailingAddress}
+            onChange={(e) => setNewOwnerForm({ ...newOwnerForm, mailingAddress: e.target.value })}
+          />
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+            <div className="md:col-span-2">
+              <Input
+                label="Owner Login Password *"
+                type="text"
+                placeholder="Set password (e.g. demo123 or Pass@123)"
+                value={newOwnerForm.password}
+                onChange={(e) => setNewOwnerForm({ ...newOwnerForm, password: e.target.value })}
+                helperText="Admin sets this password. Owner will sign in with their email and this password."
+              />
+            </div>
+            <div>
+              <Select
+                label="Initial Status"
+                options={['Active', 'Pending Setup']}
+                value={newOwnerForm.status}
+                onChange={(e) => setNewOwnerForm({ ...newOwnerForm, status: e.target.value })}
+              />
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* IN-PLACE ADD MANAGER MODAL (NEVER NAVIGATES AWAY) */}
+      <Modal
+        isOpen={isCreateManagerOpen}
+        onClose={() => setIsCreateManagerOpen(false)}
+        title="Add New Property Manager"
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setIsCreateManagerOpen(false)}>
+              Cancel
+            </Button>
+            <Button icon={CheckCircle2} onClick={handleSaveNewManager}>
+              Create Manager Profile
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4 text-xs">
+          <div className="p-3.5 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-900 leading-relaxed">
+            <strong>PORTAL LOGIN SETUP:</strong> Create the manager profile and set their login password. The manager can sign in to the Manager Workspace using their email address and this password.
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            <Input
+              label="Manager Full Name *"
+              placeholder="e.g. David Brooks or Sarah Jenkins"
+              value={newManagerForm.name}
+              onChange={(e) => setNewManagerForm({ ...newManagerForm, name: e.target.value })}
+            />
+            <Input
+              label="Primary Contact Email (Login ID) *"
+              type="email"
+              placeholder="e.g. manager@rentlock.com"
+              value={newManagerForm.email}
+              onChange={(e) => setNewManagerForm({ ...newManagerForm, email: e.target.value })}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            <Input
+              label="Manager Login Password *"
+              type="text"
+              placeholder="Set password (e.g. 123456 or Pass@123)"
+              value={newManagerForm.password}
+              onChange={(e) => setNewManagerForm({ ...newManagerForm, password: e.target.value })}
+              helperText="Manager will use this password to sign into the Manager Workspace."
+            />
+            <Input
+              label="U.S. Phone Number"
+              placeholder="+1 (718) 555-0192"
+              value={newManagerForm.phone}
+              onChange={(e) => setNewManagerForm({ ...newManagerForm, phone: e.target.value })}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+            <div>
+              <Select
+                label="Spending Approval Cap"
+                options={['$500', '$1000', '$2500', '$5000', '$10000']}
+                value={`$${newManagerForm.spendingCap}`}
+                onChange={(e) => setNewManagerForm({ ...newManagerForm, spendingCap: Number(e.target.value.replace('$', '')) || 1000 })}
+                helperText="Work orders above this cap require Admin approval."
+              />
+            </div>
+            <div>
+              <Select
+                label="Employment Type"
+                options={['Full-Time', 'Part-Time', 'Contract']}
+                value={newManagerForm.employmentType}
+                onChange={(e) => setNewManagerForm({ ...newManagerForm, employmentType: e.target.value })}
+              />
+            </div>
+            <div>
+              <Select
+                label="Initial Status"
+                options={['Active', 'On Leave']}
+                value={newManagerForm.status}
+                onChange={(e) => setNewManagerForm({ ...newManagerForm, status: e.target.value })}
+              />
+            </div>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

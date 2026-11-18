@@ -62,8 +62,6 @@ export default function OwnerList() {
     phone: '',
     mailingAddress: '',
     status: 'Active',
-    assignedProperty: 'Sunrise Residency',
-    sharePercentage: 100,
   });
 
   const refreshOwners = () => {
@@ -110,10 +108,15 @@ export default function OwnerList() {
       phone: '+1 (212) 555-0100',
       mailingAddress: '123 Main St, New York, NY 10001',
       status: 'Active',
-      assignedProperty: allProperties[0]?.name || 'General Portfolio',
-      sharePercentage: 100,
     });
     setIsAddModalOpen(true);
+  };
+
+  const handleCloseAddModal = () => {
+    setIsAddModalOpen(false);
+    if (searchParams.get('add')) {
+      navigate('/owners', { replace: true });
+    }
   };
 
   const handleOpenEdit = (owner) => {
@@ -126,8 +129,6 @@ export default function OwnerList() {
       phone: owner.phone || '',
       mailingAddress: owner.mailingAddress || '',
       status: owner.status || 'Active',
-      assignedProperty: owner.properties?.[0] || allProperties[0]?.name || 'General Portfolio',
-      sharePercentage: owner.sharePercentage || 100,
     });
     setIsEditModalOpen(true);
   };
@@ -140,7 +141,6 @@ export default function OwnerList() {
       return toast.error('Please create a login password for this owner (minimum 4 characters).');
     }
 
-    const assignedProp = allProperties.find((p) => p.name === formData.assignedProperty) || allProperties[0];
     const newOwnerObj = {
       id: createOwnerTempId(),
       name: formData.name.trim(),
@@ -151,18 +151,10 @@ export default function OwnerList() {
       mailingAddress: (formData.mailingAddress || '').trim(),
       status: formData.status,
       archived: false,
-      properties: [formData.assignedProperty],
-      allocations: [
-        {
-          propertyName: formData.assignedProperty,
-          units: assignedProp?.totalUnits || 24,
-          share: Number(formData.sharePercentage) || 100,
-          ytdIncomeShare: 0,
-          ytdExpenseShare: 0,
-        },
-      ],
-      totalUnits: assignedProp?.totalUnits || 24,
-      sharePercentage: Number(formData.sharePercentage) || 100,
+      properties: [],
+      allocations: [],
+      totalUnits: 0,
+      sharePercentage: 0,
       totalRevenue: 0,
       totalExpenses: 0,
       netIncome: 0,
@@ -171,7 +163,7 @@ export default function OwnerList() {
 
     addOwner(newOwnerObj);
     refreshOwners();
-    setIsAddModalOpen(false);
+    handleCloseAddModal();
     toast.success(`Owner ${newOwnerObj.name} created successfully with portal login.`);
   };
 
@@ -480,12 +472,12 @@ export default function OwnerList() {
       {/* ADD OWNER MODAL */}
       <Modal
         isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
+        onClose={handleCloseAddModal}
         title="Add New Property Owner / Holding Entity"
         size="lg"
         footer={
           <>
-            <Button variant="secondary" onClick={() => setIsAddModalOpen(false)}>
+            <Button variant="secondary" onClick={handleCloseAddModal}>
               Cancel
             </Button>
             <Button icon={CheckCircle2} onClick={handleSaveAdd}>
@@ -531,7 +523,7 @@ export default function OwnerList() {
           </div>
 
           <Input
-            label="U.S. Registered Mailing Address"
+            label="Address"
             placeholder="e.g. 725 Fifth Ave, Apt 24B, New York, NY 10022"
             value={formData.mailingAddress}
             onChange={(e) => setFormData({ ...formData, mailingAddress: e.target.value })}
@@ -556,15 +548,6 @@ export default function OwnerList() {
                 onChange={(e) => setFormData({ ...formData, status: e.target.value })}
               />
             </div>
-          </div>
-
-          <div className="pt-2 border-t border-gray-100">
-            <Select
-              label="Assign Primary Property"
-              options={allProperties.length > 0 ? allProperties.map((p) => p.name).filter(Boolean) : ['General Portfolio']}
-              value={formData.assignedProperty}
-              onChange={(e) => setFormData({ ...formData, assignedProperty: e.target.value })}
-            />
           </div>
         </div>
       </Modal>
@@ -615,7 +598,7 @@ export default function OwnerList() {
           </div>
 
           <Input
-            label="U.S. Registered Mailing Address"
+            label="Address"
             value={formData.mailingAddress}
             onChange={(e) => setFormData({ ...formData, mailingAddress: e.target.value })}
           />

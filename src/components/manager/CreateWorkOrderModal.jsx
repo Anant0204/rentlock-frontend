@@ -31,6 +31,10 @@ export default function CreateWorkOrderModal({
 
   const handleSave = (e) => {
     e.preventDefault();
+    if (properties.length === 0) {
+      toast.error('You do not have any assigned properties to create a work order.');
+      return;
+    }
     if (!title.trim() || !report.trim()) {
       toast.error('Please enter a title and issue description.');
       return;
@@ -72,15 +76,21 @@ export default function CreateWorkOrderModal({
       }
     >
       <form onSubmit={handleSave} className="space-y-4">
-        <Select
-          label="Assigned property"
-          options={properties.map((p) => ({ value: p.id, label: p.name }))}
-          value={effectivePropertyId}
-          onChange={(e) => {
-            setPropertyId(e.target.value);
-            setUnit('');
-          }}
-        />
+        {properties.length === 0 ? (
+          <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-medium">
+            No properties are currently assigned to your manager account.
+          </div>
+        ) : (
+          <Select
+            label="Assigned property"
+            options={properties.map((p) => ({ value: p.id, label: p.name }))}
+            value={effectivePropertyId}
+            onChange={(e) => {
+              setPropertyId(e.target.value);
+              setUnit('');
+            }}
+          />
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Select
             label="Unit"

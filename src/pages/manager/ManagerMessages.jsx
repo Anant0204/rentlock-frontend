@@ -41,22 +41,38 @@ export default function ManagerMessages() {
   const [attachments, setAttachments] = useState([]);
 
   useEffect(() => {
+    const local = getManagerWorkspaceState();
+    setState(local);
+
     apiClient.get('/operations/communications').then((res) => {
       const items = res?.items || res;
       if (Array.isArray(items) && items.length > 0) {
         setState((prev) => {
-          const mappedThreads = items.map((c, idx) => {
+          if (local.properties.length === 0) {
+            return { ...prev, threads: [] };
+          }
+          const allowedPropIds = new Set(local.properties.map((p) => String(p.id)));
+          const allowedPropNames = new Set(local.properties.map((p) => (p.name || '').trim().toLowerCase()));
+
+          const filteredItems = items.filter(
+            (c) =>
+              allowedPropIds.has(String(c.propertyId)) ||
+              allowedPropNames.has((c.propertyName || '').trim().toLowerCase())
+          );
+
+          const mappedThreads = filteredItems.map((c, idx) => {
             const contact = c.audience || c.targetAudience || 'Building Notice';
             const initials = contact.split(' ').map((p) => p[0]).join('').slice(0, 2) || 'BN';
+            const prop = local.properties.find((p) => String(p.id) === String(c.propertyId)) || local.properties[0];
             return {
               id: String(c.id || c.broadcastNumber || `BRD-${idx}`),
               contactName: contact,
               initials,
-              propertyId: String(c.propertyId || 'sunrise-residency'),
-              propertyName: 'Sunrise Residency',
+              propertyId: String(prop?.id || c.propertyId || ''),
+              propertyName: prop?.name || 'Assigned Building',
               unitNumber: 'All Units',
               propertyUnitLabel: `${c.title || 'Broadcast Notice'}`,
-              fullPropertyUnit: `${c.title || 'Broadcast Announcement'} · Sunrise Residency`,
+              fullPropertyUnit: `${c.title || 'Broadcast Announcement'} · ${prop?.name || 'Property'}`,
               channel: 'Portal',
               channelBadge: 'NOTICE',
               preview: (c.body || c.content || c.message || 'Notice broadcast').slice(0, 45),
@@ -67,7 +83,7 @@ export default function ManagerMessages() {
                 {
                   id: `MSG-BRD-${idx}`,
                   senderType: 'manager',
-                  senderLabel: 'Sarah Jenkins · Manager',
+                  senderLabel: `${prev.manager?.name || 'Manager'} · Manager`,
                   text: c.body || c.content || c.message || 'Notice broadcast',
                   isInternal: false,
                   channel: 'Portal',

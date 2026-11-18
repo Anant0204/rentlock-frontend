@@ -35,9 +35,20 @@ export default function Select({
         setOpenUp(false);
       } else if (containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
-        const spaceBelow = window.innerHeight - rect.bottom;
-        // If not enough space below (< 240px) and plenty of space above, open upwards
-        if (spaceBelow < 240 && rect.top > 200) {
+        let spaceBelow = window.innerHeight - rect.bottom;
+
+        // Check if inside a modal or scroll container
+        const scrollParent = containerRef.current.closest('.overflow-y-auto, [data-modal-body], .modal-body, .overflow-auto');
+        if (scrollParent) {
+          const parentRect = scrollParent.getBoundingClientRect();
+          const parentSpaceBelow = parentRect.bottom - rect.bottom;
+          if (parentSpaceBelow < 250) {
+            spaceBelow = parentSpaceBelow;
+          }
+        }
+
+        // If not enough space below (< 220px) and plenty of space above, open upwards
+        if (spaceBelow < 220 && rect.top > 180) {
           setOpenUp(true);
         } else {
           setOpenUp(false);
@@ -62,7 +73,7 @@ export default function Select({
   };
 
   return (
-    <div className={`space-y-1.5 relative ${className}`} ref={containerRef}>
+    <div className={`space-y-1.5 relative ${isOpen ? 'z-[100]' : 'z-10'} ${className}`} ref={containerRef}>
       {label && (
         <label className="block text-[13px] font-bold text-gray-700">
           {label}
@@ -90,7 +101,7 @@ export default function Select({
             openUp
               ? 'bottom-[100%] mb-1.5 animate-in fade-in slide-in-from-bottom-2'
               : 'top-[100%] mt-1.5 animate-in fade-in slide-in-from-top-2'
-          } bg-white border border-gray-200 rounded-xl shadow-2xl overflow-hidden z-[999] duration-200`}
+          } bg-white border border-gray-200 rounded-xl shadow-2xl z-[999] duration-200`}
         >
           <div className="max-h-60 overflow-y-auto p-1.5 space-y-0.5">
             <div 

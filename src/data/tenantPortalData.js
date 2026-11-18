@@ -38,12 +38,31 @@ export const ACCESS_TIME_OPTIONS = [
   { value: 'Anytime during business hours', label: 'Anytime during business hours' },
 ];
 
-export const ISSUE_LOCATION_OPTIONS = [
-  { value: 'Sunrise Residency · Unit A-204', label: 'Sunrise Residency · Unit A-204' },
-  { value: 'Sunrise Residency · Unit A-204 (Kitchen)', label: 'Sunrise Residency · Unit A-204 (Kitchen)' },
-  { value: 'Sunrise Residency · Unit A-204 (Bathroom)', label: 'Sunrise Residency · Unit A-204 (Bathroom)' },
-  { value: 'Sunrise Residency · Unit A-204 (Living Area)', label: 'Sunrise Residency · Unit A-204 (Living Area)' },
-];
+export function getIssueLocationOptions(tenantState) {
+  const rawUser = localStorage.getItem('pm_user');
+  let activeUser = null;
+  try {
+    if (rawUser) activeUser = JSON.parse(rawUser);
+  } catch {}
+
+  const baseLabel =
+    (tenantState?.household?.unitLabel && tenantState.household.unitLabel !== 'No unit assigned')
+      ? tenantState.household.unitLabel
+      : activeUser?.scope ||
+        (tenantState?.household?.propertyName && tenantState?.household?.unitCode
+          ? `${tenantState.household.propertyName} · Unit ${tenantState.household.unitCode}`
+          : 'Assigned Unit');
+
+  return [
+    { value: baseLabel, label: `${baseLabel} (General / Entire Unit)` },
+    { value: `${baseLabel} (Kitchen)`, label: `${baseLabel} · Kitchen` },
+    { value: `${baseLabel} (Bathroom)`, label: `${baseLabel} · Bathroom` },
+    { value: `${baseLabel} (Living Area)`, label: `${baseLabel} · Living Area` },
+    { value: `${baseLabel} (Bedroom)`, label: `${baseLabel} · Bedroom` },
+  ];
+}
+
+export const ISSUE_LOCATION_OPTIONS = getIssueLocationOptions();
 
 const INITIAL_STATE = {
   household: {
@@ -53,6 +72,10 @@ const INITIAL_STATE = {
     shortUnitLabel: 'No unit',
     dueDateLabel: '—',
     monthlyRent: 0,
+  },
+  billing: {
+    monthlyRent: 0,
+    balanceDue: 0,
   },
   payments: [],
   workOrders: [],
@@ -115,9 +138,9 @@ function saveTenantPortalState(state) {
 }
 
 export function computeBalanceSummary(state) {
-  const monthlyRent = Number(state.household.monthlyRent) || 0;
-  const confirmedPayments = state.payments.filter(p => p.status === 'Confirmed');
-  const totalPaid = confirmedPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+  const monthlyRent = Number(state?.household?.monthlyRent ?? state?.billing?.monthlyRent ?? 0);
+  const confirmedPayments = (state?.payments || []).filter((p) => p && p.status === 'Confirmed');
+  const totalPaid = confirmedPayments.reduce((sum, p) => sum + (Number(p?.amount) || 0), 0);
   const remainingBalance = Math.max(0, Math.round((monthlyRent - totalPaid) * 100) / 100);
   const latestPayment = confirmedPayments[confirmedPayments.length - 1] || null;
 

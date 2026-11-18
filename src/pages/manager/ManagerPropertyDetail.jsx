@@ -34,11 +34,11 @@ export default function ManagerPropertyDetail() {
   const [uploadCategory, setUploadCategory] = useState('Inspection Report');
 
   useEffect(() => {
-    apiClient.get('/properties?limit=100').catch(() => {});
+    setState(getManagerWorkspaceState());
   }, [id]);
 
   const property = useMemo(() => {
-    return state.properties.find((p) => p.id === id) || state.properties[0];
+    return state.properties.find((p) => String(p.id) === String(id) || p.name?.toLowerCase() === id?.toLowerCase());
   }, [state.properties, id]);
 
   const propertyWorkOrders = useMemo(
@@ -56,7 +56,23 @@ export default function ManagerPropertyDetail() {
     [state.tenants, property?.id]
   );
 
-  if (!property) return null;
+  if (!property) {
+    return (
+      <div className="space-y-6 pb-12">
+        <ManagerScopeBar breadcrumb="RENTLOCK / PROPERTIES / NOT FOUND" properties={state.properties} />
+        <Card padding="p-10" className="text-center max-w-lg mx-auto mt-8">
+          <ShieldAlert className="w-12 h-12 text-amber-500 mx-auto mb-3" />
+          <h2 className="text-lg font-bold text-gray-900">Property Not Accessible</h2>
+          <p className="text-sm text-gray-500 mt-2 mb-6">
+            This property is not assigned to your manager account or does not exist.
+          </p>
+          <Button variant="primary" onClick={() => navigate('/manager/properties')}>
+            Back to Assigned Properties
+          </Button>
+        </Card>
+      </div>
+    );
+  }
 
   const urgentCount = openWOs.filter((w) => w.priority === 'Urgent').length;
   const dueReqs = (property.requirements || []).filter((r) => r.status !== 'Current');

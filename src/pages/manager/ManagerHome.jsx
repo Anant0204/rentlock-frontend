@@ -23,37 +23,53 @@ export default function ManagerHome() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
   useEffect(() => {
+    const local = getManagerWorkspaceState();
+    setState(local);
+
     apiClient.get('/portal/manager/overview').then((ovData) => {
       if (!ovData) return;
       const liveProps = ovData.properties;
       const liveTickets = ovData.openTickets;
       setState((prev) => {
         let updatedProps = prev.properties;
-        if (Array.isArray(liveProps) && liveProps.length > 0) {
-          updatedProps = liveProps.map((p) => ({
-            id: String(p.id),
-            name: p.name,
-            address: p.address,
-            type: p.type,
-            totalUnits: p.totalUnits || p.unitsCount || 2,
-            occupiedUnits: p.occupiedUnits || 1,
-            rentRoll: p.monthlyRevenue || 4500,
-            accessNotes: p.accessNotes || 'Standard keycard access',
-          }));
+        if (Array.isArray(liveProps)) {
+          if (liveProps.length === 0 && local.properties.length === 0) {
+            updatedProps = [];
+          } else if (liveProps.length > 0) {
+            updatedProps = liveProps.map((p) => ({
+              id: String(p.id),
+              name: p.name,
+              address: p.address,
+              type: p.type || 'Residential',
+              totalUnits: p.totalUnits || p.unitsCount || 0,
+              occupiedUnits: p.occupiedUnits || 0,
+              rentRoll: p.monthlyRevenue || 0,
+              accessNotes: p.accessNotes || 'Standard keycard access',
+            }));
+          }
         }
         let updatedWOs = prev.workOrders;
-        if (Array.isArray(liveTickets) && liveTickets.length > 0) {
-          updatedWOs = liveTickets.map((t) => ({
+        if (Array.isArray(liveTickets)) {
+          const allowedPropIds = new Set(updatedProps.map((p) => String(p.id)));
+          const allowedPropNames = new Set(updatedProps.map((p) => (p.name || '').trim().toLowerCase()));
+
+          const scopedTickets = liveTickets.filter(
+            (t) =>
+              allowedPropIds.has(String(t.propertyId)) ||
+              allowedPropNames.has((t.propertyName || '').trim().toLowerCase())
+          );
+
+          updatedWOs = scopedTickets.map((t) => ({
             id: String(t.ticketNumber || t.id),
             title: t.title || t.issue,
-            propertyId: String(t.propertyId || 'sunrise-residency'),
-            propertyName: t.propertyName || 'Sunrise Residency',
-            unitNumber: t.unitNumber || 'A-204',
+            propertyId: String(t.propertyId || ''),
+            propertyName: t.propertyName || '',
+            unitNumber: t.unitNumber || '',
             category: t.category || 'General',
             priority: t.priority === 'High' || t.priority === 'Emergency' ? 'Urgent' : 'Normal',
             status: t.status === 'In_Progress' ? 'In progress' : t.status === 'Pending_Approval' ? 'Approval needed' : 'Open',
-            estimatedCost: Number(t.costEstimate || t.cost || 320),
-            residentName: t.tenantName || 'Rebecca Miller',
+            estimatedCost: Number(t.costEstimate || t.cost || 0),
+            residentName: t.tenantName || 'Resident',
           }));
         }
         return {

@@ -24,21 +24,7 @@ export default function UnitDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [unit, setUnit] = useState(() => getUnits().find((u) => String(u.id) === String(id)));
-
-  useEffect(() => {
-    if (!unit) {
-      apiClient.get('/units?limit=100').then((res) => {
-        const items = res?.items || res;
-        if (Array.isArray(items)) {
-          const found = items.find((u) => String(u.id) === String(id));
-          if (found) {
-            setUnit(found);
-            setEditForm(found);
-          }
-        }
-      }).catch(() => {});
-    }
-  }, [id, unit]);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [isRemoveModalOpen, setIsRemoveModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isChargeModalOpen, setIsChargeModalOpen] = useState(false);
@@ -46,15 +32,60 @@ export default function UnitDetail() {
   const [chargeForm, setChargeForm] = useState({ label: 'Late Fee / Utility Charge', amount: '' });
   const [customCharges, setCustomCharges] = useState([]);
 
+  useEffect(() => {
+    let isMounted = true;
+    apiClient.get(`/units/${id}`)
+      .then((data) => {
+        if (isMounted && data) {
+          const enriched = {
+            ...data,
+            propertyName: data.propertyName || data.property?.name || unit?.propertyName || 'General Portfolio',
+            tenant: data.tenant || data.tenants?.[0]?.name || unit?.tenant || null,
+            size: data.size || data.sqft || unit?.size,
+            rent: Number(data.rent ?? data.rentAmount ?? unit?.rent ?? 0),
+            deposit: Number(data.deposit ?? data.depositAmount ?? unit?.deposit ?? 0),
+          };
+          setUnit(enriched);
+          setEditForm(enriched);
+        }
+      })
+      .catch(() => {
+        apiClient.get('/units?limit=100').then((res) => {
+          const items = res?.items || res;
+          if (isMounted && Array.isArray(items)) {
+            const found = items.find((u) => String(u.id) === String(id));
+            if (found) {
+              setUnit(found);
+              setEditForm(found);
+            }
+          }
+        }).catch(() => {});
+      });
+
+    return () => { isMounted = false; };
+  }, [id]);
+
   if (!unit) return <div className="text-center py-20 text-gray-500 font-bold uppercase tracking-widest opacity-40">Unit Not Found</div>;
 
-  const lease = getLeases().find((l) => l.unitId === unit.id || (l.unitNumber === unit.unitNumber && l.propertyName === unit.propertyName));
-  const invoices = getInvoices().filter((i) => i.unitNumber === unit.unitNumber && i.propertyName === unit.propertyName);
-  const workOrders = mockComplaints.filter((w) => w.unitNumber === unit.unitNumber && w.propertyName === unit.propertyName);
-  const deposits = getAdminPortalState().securityDeposits.filter((d) => d.unitNumber === unit.unitNumber && d.propertyName === unit.propertyName);
+  const lease = (unit?.leases && unit.leases.length > 0 ? unit.leases[0] : null) ||
+    getLeases().find((l) => String(l.unitId) === String(unit?.id) || (l.unitNumber === unit?.unitNumber && l.propertyName === unit?.propertyName));
+  const invoices = (unit?.invoices && unit.invoices.length > 0 ? unit.invoices :
+    getInvoices().filter((i) => i.unitNumber === unit?.unitNumber && i.propertyName === unit?.propertyName));
+  const workOrders = (unit?.tickets && unit.tickets.length > 0 ? unit.tickets :
+    mockComplaints.filter((w) => w.unitNumber === unit?.unitNumber && w.propertyName === unit?.propertyName));
+  const deposits = getAdminPortalState().securityDeposits.filter((d) => d.unitNumber === unit?.unitNumber && d.propertyName === unit?.propertyName);
 
-  // Explicit Developer Rule (PDF Page 7): Block Delete if linked leases, deposits, payments, or maintenance records exist!
-  const hasLinkedRecords = Boolean(lease || invoices.length > 0 || workOrders.length > 0 || deposits.length > 0);
+  // Check if linked leases, deposits, payments, or maintenance records exist
+  const hasLinkedRecords = Boolean(
+    (unit?.leases && unit.leases.length > 0) ||
+    (unit?.tenants && unit.tenants.length > 0) ||
+    unit?.tenant ||
+    unit?.status === 'Occupied' ||
+    lease ||
+    invoices.length > 0 ||
+    workOrders.length > 0 ||
+    deposits.length > 0
+  );
 
   const balanceDue = invoices.reduce((s, i) => s + (i.balance || 0), 0) + customCharges.reduce((s, c) => s + c.amount, 0);
   const agingBuckets = [
@@ -65,19 +96,34 @@ export default function UnitDetail() {
     { label: '90+ Days', amount: 0 },
   ];
 
-  const handleArchive = () => {
-    archiveUnit(unit.id, true);
-    toast.success(`Unit ${unit.unitNumber} archived. Linked history retained.`);
-    setIsRemoveModalOpen(false);
-    navigate('/units');
+  const handleArchive = async () => {
+    try {
+      setIsDeleting(true);
+      await archiveUnit(unit.id, true);
+      toast.success(`Unit ${unit.unitNumber} archived. Linked history retained.`);
+      setIsRemoveModalOpen(false);
+      navigate('/units');
+    } catch (err) {
+      console.error('Archive unit error:', err);
+      toast.error(err.response?.data?.message || err.message || `Failed to archive unit ${unit.unitNumber}`);
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
-  const handleDelete = () => {
-    if (hasLinkedRecords) return;
-    deleteUnit(unit.id);
-    toast.success(`Draft unit ${unit.unitNumber} deleted`);
-    setIsRemoveModalOpen(false);
-    navigate('/units');
+  const handleDelete = async () => {
+    try {
+      setIsDeleting(true);
+      await deleteUnit(unit.id);
+      toast.success(`Unit ${unit.unitNumber} deleted successfully`);
+      setIsRemoveModalOpen(false);
+      navigate('/units');
+    } catch (err) {
+      console.error('Delete unit error:', err);
+      toast.error(err.response?.data?.message || err.message || `Failed to delete unit ${unit.unitNumber}`);
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleUpdate = () => {
@@ -296,8 +342,8 @@ export default function UnitDetail() {
           <div className="flex gap-2">
             <Button variant="secondary" icon={ArrowLeft} onClick={() => navigate('/units')} className="py-2 text-xs font-bold">Back</Button>
             <Button variant="secondary" icon={Edit} onClick={() => setIsEditModalOpen(true)} className="py-2 text-xs font-bold">Edit</Button>
-            <Button variant="danger" icon={hasLinkedRecords ? Archive : Trash2} size="sm" onClick={() => setIsRemoveModalOpen(true)} className="py-2 text-xs font-bold">
-              {hasLinkedRecords ? 'Archive Unit' : 'Delete Draft Unit'}
+            <Button variant="danger" icon={Trash2} size="sm" onClick={() => setIsRemoveModalOpen(true)} className="py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white">
+              {hasLinkedRecords ? 'Remove / Archive' : 'Delete Unit'}
             </Button>
           </div>
         }
@@ -325,23 +371,34 @@ export default function UnitDetail() {
 
       <Tabs tabs={tabs} defaultTab="info" />
 
-      {/* Archive vs Delete Enforcement Modal (PDF Page 7) */}
+      {/* Archive vs Delete Modal */}
       <Modal
         isOpen={isRemoveModalOpen}
-        onClose={() => setIsRemoveModalOpen(false)}
-        title={hasLinkedRecords ? 'Archive Unit (Delete Blocked)' : 'Delete Unit'}
-        size="sm"
+        onClose={() => !isDeleting && setIsRemoveModalOpen(false)}
+        title={hasLinkedRecords ? 'Remove or Archive Unit' : 'Delete Unit'}
+        size={hasLinkedRecords ? 'md' : 'sm'}
         footer={
           hasLinkedRecords ? (
-            <>
-              <Button variant="secondary" onClick={() => setIsRemoveModalOpen(false)}>Cancel</Button>
-              <Button variant="danger" onClick={handleArchive}>Archive Unit</Button>
-            </>
+            <div className="flex flex-wrap items-center justify-end gap-2 w-full">
+              <Button variant="secondary" disabled={isDeleting} onClick={() => setIsRemoveModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button variant="outline" disabled={isDeleting} onClick={handleArchive} icon={Archive}>
+                Archive Unit
+              </Button>
+              <Button variant="danger" disabled={isDeleting} onClick={handleDelete} icon={Trash2} className="bg-rose-600 hover:bg-rose-700 text-white">
+                {isDeleting ? 'Deleting...' : 'Delete Permanently'}
+              </Button>
+            </div>
           ) : (
-            <>
-              <Button variant="secondary" onClick={() => setIsRemoveModalOpen(false)}>Cancel</Button>
-              <Button variant="danger" onClick={handleDelete}>Confirm Permanent Delete</Button>
-            </>
+            <div className="flex items-center justify-end gap-2 w-full">
+              <Button variant="secondary" disabled={isDeleting} onClick={() => setIsRemoveModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button variant="danger" disabled={isDeleting} onClick={handleDelete} icon={Trash2} className="bg-rose-600 hover:bg-rose-700 text-white">
+                {isDeleting ? 'Deleting...' : 'Delete Unit'}
+              </Button>
+            </div>
           )
         }
       >
@@ -351,15 +408,19 @@ export default function UnitDetail() {
           </div>
           {hasLinkedRecords ? (
             <>
-              <p className="text-gray-900 font-black text-base">Deletion Blocked — Linked Records Exist</p>
-              <p className="text-gray-500 text-xs leading-relaxed">
-                Unit <strong>{unit.unitNumber}</strong> has linked leases, invoices, trust deposits, or work orders. Per U.S. audit policy, permanently deleting historical units is blocked. Use <strong>Archive Unit</strong> instead.
+              <p className="text-gray-900 font-black text-base">Active or Linked Records Detected</p>
+              <p className="text-gray-500 text-xs leading-relaxed max-w-md">
+                Unit <strong>{unit.unitNumber}</strong> is currently <strong>{unit.status}</strong>
+                {unit.tenant ? ` with resident ${unit.tenant}` : ''}.
+                You can <strong>Archive</strong> this unit to retire it while preserving historical leases and invoices, or <strong>Permanently Delete</strong> it to remove the unit and clean up associated records.
               </p>
             </>
           ) : (
             <>
-              <p className="text-gray-900 font-black text-base">Delete Empty Draft Unit?</p>
-              <p className="text-gray-500 text-xs leading-relaxed">No linked leases, deposits, payments, or work orders exist for Unit <strong>{unit.unitNumber}</strong>. Safe to delete permanently.</p>
+              <p className="text-gray-900 font-black text-base">Delete Unit {unit.unitNumber}?</p>
+              <p className="text-gray-500 text-xs leading-relaxed">
+                This unit will be permanently deleted from the system. This action cannot be undone.
+              </p>
             </>
           )}
         </div>

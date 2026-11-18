@@ -25,10 +25,14 @@ export default function TenantPay() {
       if (liveBal) {
         setPortalState((prev) => ({
           ...prev,
+          household: {
+            ...prev?.household,
+            monthlyRent: Number(liveBal?.monthlyRent ?? prev?.household?.monthlyRent ?? 0),
+          },
           billing: {
-            ...prev.billing,
-            monthlyRent: liveBal.monthlyRent || prev.billing.monthlyRent,
-            balanceDue: liveBal.currentBalanceDue || 0,
+            ...prev?.billing,
+            monthlyRent: Number(liveBal?.monthlyRent ?? prev?.billing?.monthlyRent ?? 0),
+            balanceDue: Number(liveBal?.currentBalanceDue || 0),
           },
         }));
         if (liveBal.currentBalanceDue > 0) {

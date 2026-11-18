@@ -16,20 +16,33 @@ export const archiveProperty = (id, archived = true) => {
   updateProperty(id, { archived, status: archived ? 'Archived' : 'Active' });
 };
 
-export const deleteProperty = (id) => {
+export const deleteProperty = async (id) => {
   // 1. Send real DELETE to backend API
   if (id) {
-    apiClient.delete(`/properties/${id}`).catch((err) => {
-      console.warn('[API] Delete property failed:', err.message);
-    });
+    const isOnline = await apiClient.checkHealth();
+    if (isOnline) {
+      await apiClient.delete(`/properties/${id}`);
+    }
   }
 
   // 2. Update reactive local cache
   const saved = localStorage.getItem('custom_properties');
   if (saved) {
-    const customItems = JSON.parse(saved);
-    const updated = customItems.filter((p) => p.id !== id);
-    localStorage.setItem('custom_properties', JSON.stringify(updated));
+    try {
+      const customItems = JSON.parse(saved);
+      const updated = customItems.filter((p) => String(p.id) !== String(id));
+      localStorage.setItem('custom_properties', JSON.stringify(updated));
+    } catch {}
+  }
+
+  // 3. Update reactive local units cache
+  const savedUnits = localStorage.getItem('custom_units');
+  if (savedUnits) {
+    try {
+      const uList = JSON.parse(savedUnits);
+      const updatedUnits = uList.filter((u) => String(u.propertyId) !== String(id));
+      localStorage.setItem('custom_units', JSON.stringify(updatedUnits));
+    } catch {}
   }
 };
 

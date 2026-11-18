@@ -13,12 +13,24 @@ export default function ManagerSchedule() {
   const [propertyFilter, setPropertyFilter] = useState('');
 
   useEffect(() => {
+    const local = getManagerWorkspaceState();
+    setState(local);
+
     apiClient.get('/portal/manager/schedule').then((res) => {
       const liveEvents = res?.items || res;
-      if (Array.isArray(liveEvents) && liveEvents.length > 0) {
+      if (Array.isArray(liveEvents)) {
+        const allowedPropIds = new Set(local.properties.map((p) => String(p.id)));
+        const allowedPropNames = new Set(local.properties.map((p) => (p.name || '').trim().toLowerCase()));
+
+        const scopedEvents = liveEvents.filter(
+          (e) =>
+            allowedPropIds.has(String(e.propertyId)) ||
+            allowedPropNames.has((e.property || e.propertyName || '').trim().toLowerCase())
+        );
+
         setState((prev) => ({
           ...prev,
-          schedule: liveEvents,
+          schedule: scopedEvents,
         }));
       }
     }).catch(() => {});

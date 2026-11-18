@@ -25,13 +25,14 @@ export default function TenantHome() {
         setState((prev) => ({
           ...prev,
           household: {
-            ...prev.household,
-            unitLabel: liveBal?.tenant ? `Unit ${liveBal.tenant.unitNumber} · ${liveBal.tenant.propertyName}` : prev.household.unitLabel,
+            ...prev?.household,
+            unitLabel: liveBal?.tenant ? `Unit ${liveBal.tenant.unitNumber} · ${liveBal.tenant.propertyName}` : (prev?.household?.unitLabel || 'Assigned Unit'),
+            monthlyRent: Number(liveBal?.monthlyRent ?? prev?.household?.monthlyRent ?? 0),
           },
           billing: {
-            ...prev.billing,
-            monthlyRent: liveBal?.monthlyRent || prev.billing.monthlyRent,
-            balanceDue: liveBal?.currentBalanceDue || 0,
+            ...prev?.billing,
+            monthlyRent: Number(liveBal?.monthlyRent ?? prev?.billing?.monthlyRent ?? 0),
+            balanceDue: Number(liveBal?.currentBalanceDue || 0),
           },
         }));
       }
@@ -46,8 +47,8 @@ export default function TenantHome() {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
-  const latestPayment = state.payments[state.payments.length - 1];
-  const latestWorkOrder = state.workOrders[0];
+  const latestPayment = state?.payments?.[state?.payments?.length - 1];
+  const latestWorkOrder = state?.workOrders?.[0];
 
   return (
     <div className="space-y-4">
@@ -57,7 +58,7 @@ export default function TenantHome() {
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
             {greeting}, {firstName}
           </h1>
-          <p className="text-sm text-gray-500 mt-0.5">{state.household.unitLabel}</p>
+          <p className="text-sm text-gray-500 mt-0.5">{state?.household?.unitLabel || 'Assigned Unit'}</p>
           <div className="mt-2">
             <Badge variant="primary" className="text-[10px] font-bold uppercase tracking-wider">
               YOUR HOME

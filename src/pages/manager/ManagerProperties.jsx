@@ -16,27 +16,38 @@ export default function ManagerProperties() {
   const [typeFilter, setTypeFilter] = useState('');
 
   useEffect(() => {
-    apiClient.get('/properties?limit=100').then((res) => {
-      const items = res?.items || res;
-      if (Array.isArray(items) && items.length > 0) {
-        setState((prev) => ({
-          ...prev,
-          properties: items.map((p) => ({
-            id: String(p.id),
-            name: p.name,
-            address: p.address,
-            shortLocation: `${p.city || 'Brooklyn'}, ${p.state || 'NY'}`,
-            type: p.type || 'Residential',
-            totalUnits: p.totalUnits || 2,
-            occupiedUnits: p.occupiedUnits || 1,
-            occupancyRate: p.occupancyRate || 85,
-            rentRoll: p.monthlyRevenue || 4500,
-            openWorkOrders: 1,
-            accessNotes: p.accessNotes || 'Standard keycard access',
-          })),
-        }));
-      }
-    }).catch(() => {});
+    const local = getManagerWorkspaceState();
+    setState(local);
+
+    apiClient
+      .get('/portal/manager/overview')
+      .then((ovData) => {
+        if (!ovData) return;
+        if (Array.isArray(ovData.properties)) {
+          if (ovData.properties.length === 0 && local.properties.length === 0) {
+            setState((prev) => ({ ...prev, properties: [] }));
+          } else if (ovData.properties.length > 0) {
+            setState((prev) => ({
+              ...prev,
+              properties: ovData.properties.map((p) => ({
+                id: String(p.id),
+                name: p.name,
+                address: p.address,
+                shortLocation: p.address || 'Metro Area',
+                type: p.type || 'Residential',
+                totalUnits: p.totalUnits || p.unitsCount || 0,
+                occupiedUnits: p.occupiedUnits || 0,
+                vacantUnits: p.vacantUnits || 0,
+                occupancyRate: p.occupancyRate || 0,
+                rentRoll: p.monthlyRevenue || 0,
+                openWorkOrders: p.openTicketsCount || 0,
+                accessNotes: p.accessNotes || 'Standard keycard access',
+              })),
+            }));
+          }
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const filtered = useMemo(() => {
@@ -140,8 +151,18 @@ export default function ManagerProperties() {
             <tbody className="divide-y divide-gray-100 text-sm">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-10 text-center text-xs text-gray-400">
-                    No assigned properties match your search.
+                  <td colSpan={6} className="py-12 text-center">
+                    <div className="max-w-sm mx-auto text-center space-y-2">
+                      <Building2 className="w-8 h-8 text-gray-300 mx-auto" />
+                      <p className="text-sm font-semibold text-gray-700">
+                        {state.properties.length === 0 ? 'No properties assigned' : 'No properties found'}
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        {state.properties.length === 0
+                          ? 'You currently have no properties assigned to your manager account. Once the Admin assigns buildings to you in the Managers roster, they will appear here.'
+                          : 'No assigned properties match your search.'}
+                      </p>
+                    </div>
                   </td>
                 </tr>
               ) : (

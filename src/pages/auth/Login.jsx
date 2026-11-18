@@ -286,6 +286,10 @@ export default function Login() {
   }, []);
 
   useEffect(() => {
+    // Only attempt sync if a valid authenticated session exists; never on unauthenticated login page
+    const token = localStorage.getItem('pm_token');
+    if (!token) return;
+
     // Proactively sync any custom managers or owners created in admin portal to backend
     customManagers.forEach((m) => {
       if (m.email) {
@@ -612,7 +616,7 @@ export default function Login() {
                             onClick={() => {
                               setForm({
                                 email: emailVal,
-                                password: m.password || 'demo123',
+                                password: m.password || '123456',
                                 role: 'manager',
                               });
                               setErrors({});

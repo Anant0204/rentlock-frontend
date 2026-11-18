@@ -31,22 +31,34 @@ export default function ManagerTenants() {
   const [noteInput, setNoteInput] = useState('');
 
   useEffect(() => {
+    const local = getManagerWorkspaceState();
+    setState(local);
+
     apiClient.get('/tenants?limit=100').then((res) => {
       const liveTenants = res?.items || res;
-      if (Array.isArray(liveTenants) && liveTenants.length > 0) {
+      if (Array.isArray(liveTenants)) {
+        const allowedPropIds = new Set(local.properties.map((p) => String(p.id)));
+        const allowedPropNames = new Set(local.properties.map((p) => (p.name || '').trim().toLowerCase()));
+
+        const scopedLiveTenants = liveTenants.filter(
+          (t) =>
+            allowedPropIds.has(String(t.propertyId)) ||
+            allowedPropNames.has((t.propertyName || '').trim().toLowerCase())
+        );
+
         setState((prev) => ({
           ...prev,
-          tenants: liveTenants.map((t) => ({
+          tenants: scopedLiveTenants.map((t) => ({
             id: String(t.id),
             name: t.name,
             email: t.email,
             phone: t.mobile || t.phone,
-            propertyId: String(t.propertyId || 'sunrise-residency'),
-            propertyName: t.propertyName || 'Sunrise Residency',
-            unit: t.unitNumber || 'A-204',
+            propertyId: String(t.propertyId || ''),
+            propertyName: t.propertyName || '',
+            unit: t.unitNumber || 'Unit',
             leaseStatus: t.status || 'Active',
             leaseTerm: `${t.moveInDate ? t.moveInDate.slice(0, 10) : '2025-01-01'} - ${t.leaseEnd ? t.leaseEnd.slice(0, 10) : '2026-12-31'}`,
-            monthlyRent: Number(t.monthlyRent || t.rent || 1950),
+            monthlyRent: Number(t.monthlyRent || t.rent || 0),
             balanceDue: Number(t.dueAmount || 0),
             privateNotes: t.privateNotes || '',
           })),

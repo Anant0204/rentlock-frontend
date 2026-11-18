@@ -35,10 +35,37 @@ export default function ManagerList() {
     apiClient.get('/managers').then((res) => {
       const items = res?.items || res;
       if (Array.isArray(items) && items.length > 0) {
-        setManagers(items);
-        localStorage.setItem('custom_managers', JSON.stringify(items));
+        const savedRaw = localStorage.getItem('custom_managers');
+        let localManagers = [];
+        try {
+          localManagers = savedRaw ? JSON.parse(savedRaw) : [];
+        } catch { }
+
+        const merged = items.map((serverMgr) => {
+          const localMgr = localManagers.find(
+            (lm) =>
+              (lm.id && serverMgr.id && String(lm.id) === String(serverMgr.id)) ||
+              (lm.email && serverMgr.email && lm.email.toLowerCase() === serverMgr.email.toLowerCase())
+          );
+          const serverProps = Array.isArray(serverMgr.properties) ? serverMgr.properties : [];
+          const localProps = Array.isArray(localMgr?.properties) ? localMgr.properties : [];
+          const finalProps = serverProps.length > 0 ? serverProps : localProps;
+
+          return {
+            ...serverMgr,
+            ...localMgr,
+            id: serverMgr.id || localMgr?.id,
+            name: serverMgr.name || localMgr?.name,
+            email: serverMgr.email || localMgr?.email,
+            password: localMgr?.password || '123456',
+            properties: finalProps,
+          };
+        });
+
+        setManagers(merged);
+        localStorage.setItem('custom_managers', JSON.stringify(merged));
       }
-    }).catch(() => {});
+    }).catch(() => { });
   }, []);
 
   // Modals
@@ -152,6 +179,28 @@ export default function ManagerList() {
       rating: 5.0,
     });
 
+    try {
+      const savedProps = localStorage.getItem('custom_properties');
+      if (savedProps && formData.assignedProperties.length > 0) {
+        const propList = JSON.parse(savedProps);
+        const assignedSet = new Set(formData.assignedProperties.map((p) => String(p).trim().toLowerCase()));
+        let changed = false;
+        const updatedProps = propList.map((p) => {
+          const pName = (p.name || '').trim().toLowerCase();
+          if (assignedSet.has(pName)) {
+            changed = true;
+            return { ...p, manager: formData.name.trim() };
+          }
+          return p;
+        });
+        if (changed) {
+          localStorage.setItem('custom_properties', JSON.stringify(updatedProps));
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     refreshManagers();
     setIsAddModalOpen(false);
     toast.success(`Manager ${formData.name} created! They can now log in with their email and password.`);
@@ -174,6 +223,35 @@ export default function ManagerList() {
       status: formData.status,
       properties: formData.assignedProperties,
     });
+
+    try {
+      const savedProps = localStorage.getItem('custom_properties');
+      if (savedProps) {
+        const propList = JSON.parse(savedProps);
+        const assignedSet = new Set(formData.assignedProperties.map((p) => String(p).trim().toLowerCase()));
+        let changed = false;
+        const updatedProps = propList.map((p) => {
+          const pName = (p.name || '').trim().toLowerCase();
+          const pMgr = (p.manager || '').trim().toLowerCase();
+          const oldMgr = (targetManager.name || '').trim().toLowerCase();
+          if (assignedSet.has(pName)) {
+            if (p.manager !== formData.name.trim()) {
+              changed = true;
+              return { ...p, manager: formData.name.trim() };
+            }
+          } else if (pMgr === oldMgr) {
+            changed = true;
+            return { ...p, manager: '' };
+          }
+          return p;
+        });
+        if (changed) {
+          localStorage.setItem('custom_properties', JSON.stringify(updatedProps));
+        }
+      }
+    } catch {
+      // ignore
+    }
 
     refreshManagers();
     setIsEditModalOpen(false);
@@ -359,9 +437,8 @@ export default function ManagerList() {
                   return (
                     <tr
                       key={mgr.id}
-                      className={`hover:bg-gray-50/80 transition-colors ${
-                        mgr.archived ? 'bg-gray-50/40 opacity-70' : ''
-                      }`}
+                      className={`hover:bg-gray-50/80 transition-colors ${mgr.archived ? 'bg-gray-50/40 opacity-70' : ''
+                        }`}
                     >
                       {/* Name & Role */}
                       <td className="py-3.5 px-4">
@@ -473,11 +550,10 @@ export default function ManagerList() {
                               setTargetManager(mgr);
                               setIsArchiveModalOpen(true);
                             }}
-                            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                              mgr.archived
-                                ? 'text-emerald-600 hover:bg-emerald-50'
-                                : 'text-gray-400 hover:text-red-600 hover:bg-red-50'
-                            }`}
+                            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${mgr.archived
+                              ? 'text-emerald-600 hover:bg-emerald-50'
+                              : 'text-gray-400 hover:text-red-600 hover:bg-red-50'
+                              }`}
                           >
                             {mgr.archived ? (
                               <RotateCcw className="w-3.5 h-3.5" />
@@ -592,11 +668,10 @@ export default function ManagerList() {
                 return (
                   <label
                     key={prop.id}
-                    className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors text-xs ${
-                      isSelected
-                        ? 'bg-indigo-50 border border-indigo-200 font-medium text-indigo-900'
-                        : 'bg-white border border-gray-200 hover:bg-gray-100 text-gray-700'
-                    }`}
+                    className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors text-xs ${isSelected
+                      ? 'bg-indigo-50 border border-indigo-200 font-medium text-indigo-900'
+                      : 'bg-white border border-gray-200 hover:bg-gray-100 text-gray-700'
+                      }`}
                   >
                     <input
                       type="checkbox"
@@ -698,11 +773,10 @@ export default function ManagerList() {
                 return (
                   <label
                     key={prop.id}
-                    className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors text-xs ${
-                      isSelected
-                        ? 'bg-indigo-50 border border-indigo-200 font-medium text-indigo-900'
-                        : 'bg-white border border-gray-200 hover:bg-gray-100 text-gray-700'
-                    }`}
+                    className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors text-xs ${isSelected
+                      ? 'bg-indigo-50 border border-indigo-200 font-medium text-indigo-900'
+                      : 'bg-white border border-gray-200 hover:bg-gray-100 text-gray-700'
+                      }`}
                   >
                     <input
                       type="checkbox"
@@ -741,11 +815,10 @@ export default function ManagerList() {
       >
         <div className="flex items-start gap-3 text-xs text-gray-600">
           <div
-            className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-              targetManager?.archived
-                ? 'bg-emerald-50 text-emerald-600'
-                : 'bg-rose-50 text-rose-600'
-            }`}
+            className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${targetManager?.archived
+              ? 'bg-emerald-50 text-emerald-600'
+              : 'bg-rose-50 text-rose-600'
+              }`}
           >
             {targetManager?.archived ? (
               <RotateCcw className="w-5 h-5" />
