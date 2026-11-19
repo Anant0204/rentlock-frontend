@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import apiClient from '../../services/apiClient';
 import { ArrowLeft, Edit, DoorOpen, Archive, Trash2, Save, AlertTriangle, Plus, CreditCard, Bed, Bath, ChevronDown, Info } from 'lucide-react';
@@ -18,6 +18,7 @@ import { getInvoices } from '../../data/mockInvoices';
 import { mockComplaints } from '../../data/mockExtra';
 import { getAdminPortalState } from '../../data/adminPortalStore';
 import { getUnitTypes, fetchUnitTypesFromBackend } from '../../utils/unitTypeStore';
+import { getParkingStalls, saveParkingStalls, assignParkingStall } from '../../data/mockOperations';
 import { formatCurrency, formatDate, getStatusColor } from '../../utils/formatters';
 import toast from 'react-hot-toast';
 
@@ -35,6 +36,7 @@ export default function UnitDetail() {
   const [chargeForm, setChargeForm] = useState({ label: 'Late Fee / Utility Charge', amount: '' });
   const [customCharges, setCustomCharges] = useState([]);
   const [unitTypes, setUnitTypes] = useState(() => getUnitTypes());
+  const [parkingStalls, setParkingStalls] = useState(() => getParkingStalls());
 
   useEffect(() => {
     fetchUnitTypesFromBackend().then((types) => {
@@ -42,7 +44,30 @@ export default function UnitDetail() {
         setUnitTypes(types);
       }
     });
+
+    apiClient.get('/operations/parking').then((res) => {
+      const items = res?.items || res;
+      if (Array.isArray(items)) {
+        setParkingStalls(items);
+        saveParkingStalls(items);
+      }
+    }).catch(() => {});
   }, []);
+
+  const propertyStalls = useMemo(() => {
+    const propId = editForm.propertyId || unit?.propertyId;
+    const propName = (editForm.propertyName || unit?.propertyName || '').toLowerCase();
+
+    const filtered = parkingStalls.filter((s) => {
+      if (!s) return false;
+      if (propId && s.propertyId && String(s.propertyId) === String(propId)) return true;
+      if (propName && s.propertyName && s.propertyName.toLowerCase() === propName) return true;
+      if (!s.propertyId && !s.propertyName) return true;
+      return false;
+    });
+
+    return filtered.length > 0 ? filtered : parkingStalls;
+  }, [parkingStalls, editForm.propertyId, editForm.propertyName, unit]);
 
   const updateEdit = (key, value) => {
     setEditForm((prev) => ({ ...prev, [key]: value }));
@@ -96,6 +121,13 @@ export default function UnitDetail() {
     fetchUnitTypesFromBackend().then((types) => {
       if (Array.isArray(types) && types.length > 0) setUnitTypes(types);
     });
+    apiClient.get('/operations/parking').then((res) => {
+      const items = res?.items || res;
+      if (Array.isArray(items)) {
+        setParkingStalls(items);
+        saveParkingStalls(items);
+      }
+    }).catch(() => {});
     setEditForm({
       ...unit,
       propertyId: unit.propertyId || properties[0]?.id || 1,
@@ -253,6 +285,31 @@ export default function UnitDetail() {
 
       await updateUnit(unit.id, payload);
       setUnit({ ...unit, ...payload });
+
+      // Sync parking stall assignment with Parking Management
+      if (editForm.parkingSlot && editForm.parkingSlot !== unit.parkingSlot) {
+        const stallMatch = parkingStalls.find((s) => (s.spotNumber || s.stallNumber) === editForm.parkingSlot);
+        if (stallMatch) {
+          assignParkingStall(stallMatch.id, {
+            unitNumber: editForm.unitNumber || unit.unitNumber,
+            propertyName: prop?.name || editForm.propertyName || unit.propertyName,
+            propertyId: editForm.propertyId || unit.propertyId,
+            assignedResident: unit.tenant || `Unit ${editForm.unitNumber || unit.unitNumber} Resident`,
+          });
+        }
+      } else if (!editForm.parkingSlot && unit.parkingSlot) {
+        const oldStall = parkingStalls.find((s) => (s.spotNumber || s.stallNumber) === unit.parkingSlot);
+        if (oldStall) {
+          assignParkingStall(oldStall.id, {
+            assignedResident: null,
+            unitNumber: 'Unassigned',
+            vehicle: '—',
+            licensePlate: '—',
+            permitTag: '—',
+          });
+        }
+      }
+
       setIsEditModalOpen(false);
       toast.success('Unit specifications updated');
     } catch (err) {
@@ -832,13 +889,32 @@ export default function UnitDetail() {
                 <label className="block text-xs font-semibold text-gray-800 mb-1.5">
                   Assigned Parking Space
                 </label>
-                <input
-                  type="text"
-                  placeholder="e.g., P-A01"
-                  value={editForm.parkingSlot || ''}
-                  onChange={(e) => updateEdit('parkingSlot', e.target.value)}
-                  className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
-                />
+                <div className="relative">
+                  <select
+                    value={editForm.parkingSlot || ''}
+                    onChange={(e) => updateEdit('parkingSlot', e.target.value)}
+                    className="w-full appearance-none rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 pr-9 text-sm text-gray-800 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20 cursor-pointer"
+                  >
+                    <option value="">None / No Assigned Spot</option>
+                    {propertyStalls.map((s) => {
+                      const spotNum = s.spotNumber || s.stallNumber;
+                      const type = s.spotType || s.stallType || 'Standard Covered';
+                      const loc = s.lotLocation ? ` · ${s.lotLocation}` : '';
+                      const isCurrentSpot = (editForm.parkingSlot && spotNum === editForm.parkingSlot) || (unit?.parkingSlot && spotNum === unit.parkingSlot);
+                      const isAssigned = (s.unitNumber && s.unitNumber !== 'Unassigned' && s.unitNumber !== unit?.unitNumber) || (s.assignedResident && s.assignedResident !== unit?.tenant);
+                      const statusLabel = isCurrentSpot ? ' · Current Spot' : (isAssigned ? ` · Assigned (${s.unitNumber || s.assignedResident})` : ' · Available');
+                      return (
+                        <option key={s.id || spotNum} value={spotNum}>
+                          {spotNum} ({type}{loc}{statusLabel})
+                        </option>
+                      );
+                    })}
+                    {editForm.parkingSlot && !propertyStalls.some((s) => (s.spotNumber || s.stallNumber) === editForm.parkingSlot) && (
+                      <option value={editForm.parkingSlot}>{editForm.parkingSlot}</option>
+                    )}
+                  </select>
+                  <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
               </div>
 
               <div>
