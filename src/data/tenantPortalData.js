@@ -153,17 +153,34 @@ export function getTenantPortalState() {
       monthlyRent: Number(match?.rent || occupiedUnit?.marketRent || 1000),
     };
 
-    // Clean up any legacy "No unit" tags in threads
+    // Clean up any legacy "No unit" tags and consolidate duplicate contact threads
     if (Array.isArray(base.threads)) {
-      base.threads = base.threads.map((t) => {
-        if (!t.householdUnit || t.householdUnit === 'No unit' || t.householdUnit === 'No unit assigned') {
-          return {
+      const threadMap = new Map();
+      base.threads.forEach((t) => {
+        const cleanedUnit = !t.householdUnit || t.householdUnit === 'No unit' || t.householdUnit === 'No unit assigned'
+          ? `${resolvedPropName} · ${resolvedUnitCode}`
+          : t.householdUnit;
+
+        const key = (t.contactName || '').trim().toLowerCase() || t.id;
+        if (!threadMap.has(key)) {
+          threadMap.set(key, {
             ...t,
-            householdUnit: `${resolvedPropName} · ${resolvedUnitCode}`,
-          };
+            householdUnit: cleanedUnit,
+            messages: Array.isArray(t.messages) ? [...t.messages] : [],
+          });
+        } else {
+          const existing = threadMap.get(key);
+          const existingMsgIds = new Set(existing.messages.map((m) => m.id));
+          const newMsgs = (t.messages || []).filter((m) => !existingMsgIds.has(m.id));
+          existing.messages = [...existing.messages, ...newMsgs];
+          existing.unreadCount = (existing.unreadCount || 0) + (t.unreadCount || 0);
+          existing.householdUnit = cleanedUnit;
+          // Keep most recent subject and time
+          existing.subject = t.subject || existing.subject;
+          existing.lastTime = t.lastTime || existing.lastTime;
         }
-        return t;
       });
+      base.threads = Array.from(threadMap.values());
     }
   }
 
@@ -369,41 +386,69 @@ export function createTenantWorkOrder({
   };
 
   const entryText = allowEntryWhenAway ? 'Staff may enter if away' : 'Tenant must be home';
-  const newThread = {
-    id,
-    workOrderId: id,
-    householdUnit: state.household?.shortUnitLabel || `${propName} · ${unitNum}`,
-    contactName: 'Sarah Jenkins',
-    contactInitials: 'SJ',
-    contactRole: 'PROPERTY MANAGER',
-    subject: `${id} · ${category} request`,
-    headerTag: `${id} · ${shortTitle}`,
-    lastTime: timeLabel,
-    unreadCount: 1,
-    messages: [
-      {
-        id: `MSG-${Date.now()}-1`,
-        sender: 'tenant',
-        senderName: 'You',
-        text: `${description.trim()}\n\nCategory: ${category} · Urgency: ${urgency} · Preferred time: ${workOrder.bestTimeToEnter} · ${entryText}`,
-        time: timeLabel,
-        attachments: photos,
-      },
-      {
-        id: `MSG-${Date.now()}-2`,
-        sender: 'manager',
-        senderName: 'Sarah',
-        text: `Thanks for reporting ${id}. I have received your ${category.toLowerCase()} request${photos.length ? ` with ${photos.length} photo(s)` : ''} and will follow up here.`,
-        time: timeLabel,
-        attachments: [],
-      },
-    ],
-  };
+  const newMessages = [
+    {
+      id: `MSG-${Date.now()}-1`,
+      sender: 'tenant',
+      senderName: 'You',
+      text: `${description.trim()}\n\nCategory: ${category} · Urgency: ${urgency} · Preferred time: ${workOrder.bestTimeToEnter} · ${entryText}`,
+      time: timeLabel,
+      attachments: photos,
+    },
+    {
+      id: `MSG-${Date.now()}-2`,
+      sender: 'manager',
+      senderName: 'Sarah',
+      text: `Thanks for reporting ${id}. I have received your ${category.toLowerCase()} request${photos.length ? ` with ${photos.length} photo(s)` : ''} and will follow up here.`,
+      time: timeLabel,
+      attachments: [],
+    },
+  ];
+
+  // Consolidate into single Property Manager (Sarah Jenkins) thread
+  const existingSarahIndex = (state.threads || []).findIndex(
+    (t) => (t.contactName || '').trim().toLowerCase() === 'sarah jenkins'
+  );
+
+  let updatedThreads = [];
+  let targetThread = null;
+
+  if (existingSarahIndex >= 0) {
+    const existing = state.threads[existingSarahIndex];
+    targetThread = {
+      ...existing,
+      subject: `${id} · ${category} request`,
+      headerTag: `${id} · ${shortTitle}`,
+      lastTime: timeLabel,
+      householdUnit: state.household?.shortUnitLabel || `${propName} · ${unitNum}`,
+      unreadCount: (existing.unreadCount || 0) + 1,
+      messages: [...(existing.messages || []), ...newMessages],
+    };
+    updatedThreads = [
+      targetThread,
+      ...state.threads.filter((_, idx) => idx !== existingSarahIndex),
+    ];
+  } else {
+    targetThread = {
+      id,
+      workOrderId: id,
+      householdUnit: state.household?.shortUnitLabel || `${propName} · ${unitNum}`,
+      contactName: 'Sarah Jenkins',
+      contactInitials: 'SJ',
+      contactRole: 'PROPERTY MANAGER',
+      subject: `${id} · ${category} request`,
+      headerTag: `${id} · ${shortTitle}`,
+      lastTime: timeLabel,
+      unreadCount: 1,
+      messages: newMessages,
+    };
+    updatedThreads = [targetThread, ...(state.threads || [])];
+  }
 
   const nextState = {
     ...state,
     workOrders: [workOrder, ...state.workOrders],
-    threads: [newThread, ...state.threads],
+    threads: updatedThreads,
   };
 
   saveTenantPortalState(nextState);

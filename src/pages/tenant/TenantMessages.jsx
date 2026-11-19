@@ -239,9 +239,39 @@ export default function TenantMessages() {
     };
   }, [syncAllMessages]);
 
-  // Show all tenant threads (Admin chats, work orders, direct messages)
+  // Show all tenant threads consolidated per contact (Sarah Jenkins = 1 unified thread)
   const householdThreads = useMemo(() => {
-    return portalState.threads || [];
+    const rawThreads = portalState.threads || [];
+    const threadMap = new Map();
+
+    rawThreads.forEach((th) => {
+      const key = (th.contactName || '').trim().toLowerCase() || th.id;
+      if (!threadMap.has(key)) {
+        threadMap.set(key, {
+          ...th,
+          messages: Array.isArray(th.messages) ? [...th.messages] : [],
+        });
+      } else {
+        const existing = threadMap.get(key);
+        const existingIds = new Set(existing.messages.map((m) => m.id));
+        const newMsgs = (th.messages || []).filter((m) => !existingIds.has(m.id));
+        existing.messages = [...existing.messages, ...newMsgs];
+        existing.unreadCount = (existing.unreadCount || 0) + (th.unreadCount || 0);
+
+        if (parseTimeMinutes(th.lastTime) >= parseTimeMinutes(existing.lastTime)) {
+          existing.subject = th.subject || existing.subject;
+          existing.lastTime = th.lastTime || existing.lastTime;
+          existing.headerTag = th.headerTag || existing.headerTag;
+        }
+      }
+    });
+
+    const list = Array.from(threadMap.values());
+    list.forEach((th) => {
+      th.messages.sort((m1, m2) => parseTimeMinutes(m1.time) - parseTimeMinutes(m2.time));
+    });
+
+    return list;
   }, [portalState.threads]);
 
   const unreadCount = useMemo(() => getUnreadMessageCount(portalState), [portalState]);
@@ -258,8 +288,10 @@ export default function TenantMessages() {
 
   const activeThread = useMemo(() => {
     const preferredId = selectedThreadId || initialThreadParam;
+    const prefStr = preferredId ? String(preferredId).trim() : '';
     return (
-      visibleThreads.find((t) => t.id === preferredId) ||
+      visibleThreads.find((t) => String(t.id).trim() === prefStr) ||
+      visibleThreads.find((t) => t.workOrderId && String(t.workOrderId).trim() === prefStr) ||
       visibleThreads[0] ||
       householdThreads[0] ||
       null
@@ -281,16 +313,26 @@ export default function TenantMessages() {
     setSelectedThreadId(threadId);
     setSearchParams({ thread: threadId }, { replace: true });
     localStorage.setItem('tenant_selected_thread', threadId);
-    const updated = markThreadRead(threadId);
-    setPortalState(updated);
+    markThreadRead(threadId);
+    setPortalState((prev) => ({
+      ...prev,
+      threads: (prev.threads || []).map((t) =>
+        t.id === threadId ? { ...t, unreadCount: 0 } : t
+      ),
+    }));
     if (!isNaN(parseInt(threadId, 10))) {
       apiClient.patch(`/messages/threads/${threadId}/read`).catch(() => {});
     }
   };
 
   const handleMarkRead = (threadId) => {
-    const updated = markThreadRead(threadId);
-    setPortalState(updated);
+    markThreadRead(threadId);
+    setPortalState((prev) => ({
+      ...prev,
+      threads: (prev.threads || []).map((t) =>
+        t.id === threadId ? { ...t, unreadCount: 0 } : t
+      ),
+    }));
     if (!isNaN(parseInt(threadId, 10))) {
       apiClient.patch(`/messages/threads/${threadId}/read`).catch(() => {});
     }
@@ -450,7 +492,7 @@ export default function TenantMessages() {
               </div>
             ) : (
               visibleThreads.map((thread) => {
-                const isSelected = activeThread?.id === thread.id;
+                const isSelected = String(activeThread?.id) === String(thread.id);
                 return (
                   <button
                     key={thread.id}
