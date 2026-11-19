@@ -291,7 +291,7 @@ const INITIAL_STAFF = [];
 
 export const getStaff = () => {
   try {
-    const raw = localStorage.getItem('pm_staff');
+    const raw = localStorage.getItem('pm_staff') || localStorage.getItem('custom_staff');
     if (raw) return JSON.parse(raw);
   } catch (err) {
     console.warn('Could not read staff cache', err);
@@ -301,31 +301,101 @@ export const getStaff = () => {
 };
 
 export const saveStaff = (staff) => {
-  localStorage.setItem('pm_staff', JSON.stringify(staff));
+  try {
+    localStorage.setItem('pm_staff', JSON.stringify(staff));
+    localStorage.setItem('custom_staff', JSON.stringify(staff));
+  } catch (err) {
+    console.warn('Could not save staff cache', err);
+  }
 };
 
-export const addStaff = (member) => {
-  apiClient.post('/operations/staff', member).catch(() => {});
+export const addStaff = async (member) => {
+  let backendItem = null;
+  try {
+    const res = await apiClient.post('/operations/staff', {
+      propertyId: member.propertyId ? Number(member.propertyId) : undefined,
+      name: member.name,
+      roleTitle: member.roleTitle || member.role,
+      role: member.role || member.roleTitle,
+      phone: member.phone || '',
+      email: member.email,
+      fobKeyId: member.fobKeyId || member.keyFobId || undefined,
+      keyFobId: member.keyFobId || member.fobKeyId || undefined,
+      department: member.department,
+      shift: member.shift,
+      activeKeys: member.activeKeys,
+    });
+    backendItem = res?.data || res?.item || res;
+  } catch (err) {
+    console.warn('Backend addStaff call error:', err);
+  }
+
   const current = getStaff();
-  const nextId = `STF-${String(current.length + 1).padStart(2, '0')}`;
+  const nextId = backendItem?.id || `STF-${String(current.length + 1).padStart(2, '0')}`;
   const newMember = {
-    id: nextId,
-    status: 'On Duty',
-    backgroundCheck: 'Verified',
-    keyFobId: `FOB-${Math.floor(1000 + Math.random() * 9000)}`,
     ...member,
+    id: nextId,
+    status: member.status || 'On Duty',
+    backgroundCheck: member.backgroundCheck || 'Verified (FDNY / Background Clear)',
+    keyFobId: member.keyFobId || backendItem?.keyFobId || backendItem?.fobKeyId || `FOB-${Math.floor(1000 + Math.random() * 9000)}`,
+    assignedProperty: member.assignedProperty || backendItem?.propertyName || 'General Portfolio',
+    propertyName: member.assignedProperty || backendItem?.propertyName || 'General Portfolio',
   };
-  const updated = [newMember, ...current];
+  const updated = [newMember, ...current.filter((s) => String(s.id) !== String(newMember.id))];
   saveStaff(updated);
   return updated;
 };
 
-export const deleteStaff = (staffId) => {
-  if (staffId) {
-    apiClient.delete(`/operations/staff/${staffId}`).catch(() => {});
+export const deleteStaff = async (staffId) => {
+  if (staffId && !String(staffId).startsWith('STF-')) {
+    try {
+      await apiClient.delete(`/operations/staff/${staffId}`);
+    } catch (err) {
+      console.warn('Backend deleteStaff error:', err);
+    }
   }
   const current = getStaff();
-  const updated = current.filter((s) => s.id !== staffId);
+  const updated = current.filter((s) => String(s.id) !== String(staffId));
+  saveStaff(updated);
+  return updated;
+};
+
+export const updateStaff = async (staffId, updatedFields) => {
+  let backendItem = null;
+  if (staffId && !String(staffId).startsWith('STF-')) {
+    try {
+      const res = await apiClient.put(`/operations/staff/${staffId}`, {
+        propertyId: updatedFields.propertyId ? Number(updatedFields.propertyId) : undefined,
+        name: updatedFields.name,
+        roleTitle: updatedFields.roleTitle || updatedFields.role,
+        role: updatedFields.role || updatedFields.roleTitle,
+        phone: updatedFields.phone,
+        email: updatedFields.email,
+        fobKeyId: updatedFields.fobKeyId || updatedFields.keyFobId,
+        keyFobId: updatedFields.keyFobId || updatedFields.fobKeyId,
+        department: updatedFields.department,
+        shift: updatedFields.shift,
+        activeKeys: updatedFields.activeKeys,
+      });
+      backendItem = res?.data || res?.item || res;
+    } catch (err) {
+      console.warn('Backend updateStaff error:', err);
+    }
+  }
+
+  const current = getStaff();
+  const updated = current.map((s) => {
+    if (String(s.id) === String(staffId)) {
+      return {
+        ...s,
+        ...updatedFields,
+        ...(backendItem || {}),
+        assignedProperty: updatedFields.assignedProperty || backendItem?.propertyName || s.assignedProperty,
+        propertyName: updatedFields.assignedProperty || backendItem?.propertyName || s.propertyName,
+      };
+    }
+    return s;
+  });
   saveStaff(updated);
   return updated;
 };
