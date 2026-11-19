@@ -234,112 +234,14 @@ export default function Navbar() {
     <header className="sticky top-0 z-30 h-16 bg-white border-b border-gray-100 px-4 lg:px-6">
       <div className="h-full flex items-center justify-between gap-4">
         {/* Left */}
-        <div className="flex items-center gap-3 flex-1">
+        <div className="flex items-center gap-3">
           <button onClick={toggleMobile} className="lg:hidden p-2 rounded-xl hover:bg-gray-100 text-gray-600 cursor-pointer transition-colors">
             <Menu className="w-5 h-5" />
           </button>
-          
-          <div className="relative hidden sm:block max-w-lg w-full group" ref={searchRef}>
-            <Motion.div 
-              className="p-[1.5px] rounded-full shadow-sm shadow-indigo-500/10"
-              style={{
-                backgroundImage: 'linear-gradient(90deg, #4A6CF7, #A855F7, #38bdf8, #4A6CF7)',
-                backgroundSize: '300% 100%'
-              }}
-              animate={{ backgroundPosition: ['0% 0%', '100% 0%'] }}
-              transition={{ duration: 4, ease: 'linear', repeat: Infinity }}
-            >
-              <div className="relative flex items-center bg-white rounded-full overflow-hidden transition-all">
-                <div className="pl-4 pr-2.5">
-                  <Search className="w-4 h-4 text-gray-400 group-focus-within:text-[#4A6CF7] transition-colors duration-300" />
-                </div>
-                
-                <input
-                  type="text"
-                  placeholder="Universal search..."
-                  value={searchQuery}
-                  onChange={handleSearchChange}
-                  onKeyDown={handleKeyDown}
-                  onFocus={() => setShowDocs(true)}
-                  className="w-full py-2.5 pr-4 bg-transparent text-[13px] text-gray-700 outline-none placeholder:text-gray-400/80 font-bold z-10 relative"
-                />
-                
-                {searchQuery && (
-                  <button 
-                    onClick={() => { setSearchQuery(''); setSuggestions([]); }}
-                    className="p-1 mr-2 rounded-full hover:bg-slate-100 text-slate-300 hover:text-slate-500 transition-all cursor-pointer z-20"
-                  >
-                    <X className="w-4 h-4" /> 
-                  </button>
-                )}
-
-                <div className="pr-4 opacity-0 group-focus-within:opacity-100 transition-opacity duration-300">
-                  <div className="w-1.5 h-1.5 rounded-full bg-[#4A6CF7] animate-pulse" />
-                </div>
-              </div>
-            </Motion.div>
-
-            {showDocs && suggestions.length > 0 && (
-              <div className="absolute top-12 left-0 w-full bg-white rounded-2xl shadow-2xl border border-gray-100 py-3 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-                <div className="px-4 mb-2">
-                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-loose">Search Results</p>
-                </div>
-                <div className="max-h-[360px] overflow-y-auto">
-                  {suggestions.map((item, idx) => (
-                    <button
-                      key={item.id}
-                      onClick={() => { navigate(item.path); setShowDocs(false); setSearchQuery(''); }}
-                      onMouseEnter={() => setSelectedIndex(idx)}
-                      className={`w-full flex items-center justify-between px-4 py-2.5 transition-all cursor-pointer border-l-2 ${
-                        selectedIndex === idx ? 'bg-indigo-50 border-indigo-500' : 'border-transparent hover:bg-gray-50'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                          item.type === 'Property' ? 'bg-indigo-100 text-indigo-600' :
-                          item.type === 'Unit' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'
-                        }`}>
-                          <Plus className="w-4 h-4 rotate-45" />
-                        </div>
-                        <div className="text-left">
-                          <p className="text-[13px] font-bold text-gray-900 leading-none">{item.title}</p>
-                          <p className="text-[10px] text-gray-400 font-medium mt-1 uppercase tracking-tighter">{item.subtitle}</p>
-                        </div>
-                      </div>
-                      <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">{item.category}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
         </div>
 
         {/* Right */}
         <div className="flex items-center gap-2">
-          {/* Quick Add Dropdown */}
-          <div className="relative" ref={quickAddRef}>
-            <button
-              onClick={() => setQuickAddOpen(!quickAddOpen)}
-              className="p-2.5 rounded-xl bg-gradient-to-r from-[#4A6CF7] to-[#6C6EF8] text-white shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all cursor-pointer"
-            >
-              <Plus className="w-4.5 h-4.5" />
-            </button>
-            {quickAddOpen && (
-              <div className="absolute right-0 top-12 w-48 bg-white rounded-xl shadow-xl border border-gray-100 py-1.5 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
-                {quickAddItems.map(item => (
-                  <button
-                    key={item.path}
-                    onClick={() => { navigate(item.path); setQuickAddOpen(false); }}
-                    className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors cursor-pointer"
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
           {/* Notifications Dropdown */}
           <div className="relative" ref={notifRef}>
             <button

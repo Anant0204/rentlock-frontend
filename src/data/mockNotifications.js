@@ -60,11 +60,12 @@ export const addNotification = ({
 };
 
 /**
- * Strict Role-Wise and Recipient-Wise Notification Filtering:
- * - Tenant only sees notifications meant for Tenant.
- * - Manager only sees notifications meant for Manager.
- * - Owner only sees notifications meant for Owner.
- * - Admin only sees notifications meant for Admin (never messages sent out to others).
+ * Strict Role-Wise Notification Filtering:
+ * - Tenant (role 'tenant') sees all notifications sent to Tenant.
+ * - Manager (role 'manager') sees all notifications sent to Manager.
+ * - Owner (role 'owner') sees all notifications sent to Owner.
+ * - Admin (role 'admin') only sees notifications sent to Admin (never messages Admin sent out to others).
+ * - All roles see announcements where targetRole === 'all'.
  */
 export const getUserNotifications = (user) => {
   if (!user) return [];
@@ -74,30 +75,29 @@ export const getUserNotifications = (user) => {
   const userId = user.id ? String(user.id) : null;
 
   return current.filter((n) => {
-    // 1. If direct recipient is specified (by email or ID)
-    if (n.recipientEmail || n.recipientId) {
-      const matchEmail = n.recipientEmail && userEmail && n.recipientEmail === userEmail;
-      const matchId = n.recipientId && userId && String(n.recipientId) === userId;
-      // Only the exact recipient can see this direct notification
-      return Boolean(matchEmail || matchId);
+    // 1. If notification is for a different role, don't show unless it's direct recipient or 'all'
+    if (n.targetRole && n.targetRole !== 'all' && n.targetRole !== userRole) {
+      const isDirectRecipient =
+        (n.recipientEmail && userEmail && n.recipientEmail === userEmail) ||
+        (n.recipientId && userId && String(n.recipientId) === userId);
+      return Boolean(isDirectRecipient);
     }
 
-    // 2. Strict Role-based notifications (Tenant -> Tenant, Owner -> Owner, Manager -> Manager, Admin -> Admin)
-    if (n.targetRole === 'tenant') {
-      return userRole === 'tenant';
-    }
-    if (n.targetRole === 'manager') {
-      return userRole === 'manager';
-    }
-    if (n.targetRole === 'owner') {
-      return userRole === 'owner';
-    }
-    if (n.targetRole === 'admin') {
-      return userRole === 'admin';
+    // 2. Exact role match (Tenant gets Tenant messages, Manager gets Manager messages, etc.)
+    if (n.targetRole === userRole) {
+      return true;
     }
 
-    // 3. System-wide broadcasts
+    // 3. System-wide broadcasts for all roles
     if (n.targetRole === 'all') {
+      return true;
+    }
+
+    // 4. Fallback direct match
+    if (n.recipientEmail && userEmail && n.recipientEmail === userEmail) {
+      return true;
+    }
+    if (n.recipientId && userId && String(n.recipientId) === userId) {
       return true;
     }
 
@@ -114,11 +114,12 @@ export const markAllUserNotificationsRead = (user) => {
 
   const updated = current.map((n) => {
     let isForUser = false;
-    if (n.recipientEmail || n.recipientId) {
-      const matchEmail = n.recipientEmail && userEmail && n.recipientEmail === userEmail;
-      const matchId = n.recipientId && userId && String(n.recipientId) === userId;
-      isForUser = Boolean(matchEmail || matchId);
-    } else if (n.targetRole === userRole || n.targetRole === 'all') {
+    if (n.targetRole === userRole || n.targetRole === 'all') {
+      isForUser = true;
+    } else if (
+      (n.recipientEmail && userEmail && n.recipientEmail === userEmail) ||
+      (n.recipientId && userId && String(n.recipientId) === userId)
+    ) {
       isForUser = true;
     }
 
