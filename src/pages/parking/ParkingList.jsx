@@ -98,11 +98,11 @@ export default function ParkingList() {
     propertyId: '',
     tenantId: '',
     assignedResident: '',
-    unitNumber: 'A-204',
+    unitNumber: '',
     vehicle: '',
     licensePlate: '',
-    permitTag: 'PRM-2026-081',
-    monthlyFee: '150',
+    permitTag: '',
+    monthlyFee: '',
     isManualResident: false,
   });
 
@@ -122,10 +122,10 @@ export default function ParkingList() {
   // Form State for Adding a New Stall
   const [addForm, setAddForm] = useState({
     spotNumber: '',
-    propertyName: 'Sunrise Residency',
-    lotLocation: 'Sub-Level 1 (North Garage)',
+    propertyName: '',
+    lotLocation: '',
     spotType: 'Standard Covered',
-    monthlyFee: '150',
+    monthlyFee: '',
   });
 
   const filtered = useMemo(() => {
@@ -159,91 +159,71 @@ export default function ParkingList() {
 
   const handleOpenAssign = (stall) => {
     setSelectedStall(stall);
-    const initialPropName = stall.propertyName || propertyOptions[0]?.name || 'Sunrise Residency';
-    const initialProp = propertyOptions.find((p) => p.name.toLowerCase() === initialPropName.toLowerCase()) || propertyOptions[0];
+    const initialPropName = stall.propertyName || propertyOptions[0]?.name || '';
+    const initialProp = propertyOptions.find((p) => p.name.toLowerCase() === (initialPropName || '').toLowerCase()) || propertyOptions[0];
 
-    const propTenants = tenants.filter((t) => {
-      if (!t) return false;
-      if (t.propertyName && t.propertyName.toLowerCase() === initialPropName.toLowerCase()) return true;
-      if (initialProp?.id && String(t.propertyId) === String(initialProp.id)) return true;
-      return false;
-    });
+    const isAssigned = Boolean(stall.assignedResident && stall.assignedResident.trim() && stall.assignedResident !== 'Unassigned');
 
     let matchedTenant = null;
-    if (stall.assignedResident) {
-      matchedTenant = propTenants.find((t) => t.name.toLowerCase() === stall.assignedResident.toLowerCase())
-        || tenants.find((t) => t.name.toLowerCase() === stall.assignedResident.toLowerCase());
+    if (isAssigned) {
+      matchedTenant = tenants.find(
+        (t) =>
+          (stall.assignedTenantId && String(t.id) === String(stall.assignedTenantId)) ||
+          (t.name && t.name.toLowerCase() === stall.assignedResident.toLowerCase())
+      );
     }
 
-    const activeTenant = matchedTenant || (propTenants.length > 0 ? propTenants[0] : null);
-    const isManual = !activeTenant && Boolean(stall.assignedResident);
-
     setForm({
-      propertyName: initialProp?.name || initialPropName,
-      propertyId: initialProp?.id || '',
-      tenantId: activeTenant ? String(activeTenant.id) : '',
-      assignedResident: stall.assignedResident || activeTenant?.name || '',
-      unitNumber: stall.unitNumber && stall.unitNumber !== 'Unassigned'
+      propertyName: stall.propertyName || initialProp?.name || '',
+      propertyId: stall.propertyId || initialProp?.id || '',
+      tenantId: matchedTenant ? String(matchedTenant.id) : (stall.assignedTenantId ? String(stall.assignedTenantId) : ''),
+      assignedResident: isAssigned ? stall.assignedResident : '',
+      unitNumber: isAssigned && stall.unitNumber && stall.unitNumber !== 'Unassigned'
         ? stall.unitNumber
-        : (activeTenant?.unitNumber || activeTenant?.unit?.unitNumber || 'A-101'),
-      vehicle: stall.vehicle && stall.vehicle !== '—'
+        : (matchedTenant?.unitNumber || matchedTenant?.unit?.unitNumber || ''),
+      vehicle: isAssigned && stall.vehicle && stall.vehicle !== '—'
         ? stall.vehicle
-        : (activeTenant?.vehicle || 'Toyota Camry (Black)'),
-      licensePlate: stall.licensePlate && stall.licensePlate !== '—'
+        : (matchedTenant?.vehicle || matchedTenant?.vehicleModel || ''),
+      licensePlate: isAssigned && stall.licensePlate && stall.licensePlate !== '—'
         ? stall.licensePlate
-        : (activeTenant?.licensePlate || 'NY · KJH-9021'),
-      permitTag: stall.permitTag && stall.permitTag !== '—'
+        : (matchedTenant?.licensePlate || matchedTenant?.vehiclePlate || ''),
+      permitTag: isAssigned && stall.permitTag && stall.permitTag !== '—'
         ? stall.permitTag
-        : `PRM-2026-${String(stall.id).replace(/\D/g, '').padStart(3, '0') || '081'}`,
-      monthlyFee: String(stall.monthlyFee || 150),
-      isManualResident: isManual,
+        : '',
+      monthlyFee: stall.monthlyFee !== undefined && stall.monthlyFee !== null && stall.monthlyFee !== ''
+        ? String(stall.monthlyFee)
+        : '',
+      isManualResident: isAssigned && !matchedTenant,
     });
     setIsAssignOpen(true);
   };
 
   const handlePropertyChange = (newPropName) => {
     const prop = propertyOptions.find((p) => p.name === newPropName);
-    const propTenants = tenants.filter((t) => {
-      if (!t) return false;
-      if (t.propertyName && t.propertyName.toLowerCase() === newPropName.toLowerCase()) return true;
-      if (prop?.id && String(t.propertyId) === String(prop.id)) return true;
-      return false;
-    });
-
-    if (propTenants.length > 0) {
-      const firstT = propTenants[0];
-      setForm((prev) => ({
-        ...prev,
-        propertyName: newPropName,
-        propertyId: prop?.id || '',
-        tenantId: String(firstT.id),
-        assignedResident: firstT.name || '',
-        unitNumber: firstT.unitNumber || firstT.unit?.unitNumber || '',
-        vehicle: firstT.vehicle || prev.vehicle || 'Toyota Camry (Black)',
-        licensePlate: firstT.licensePlate || prev.licensePlate || 'NY · KJH-9021',
-        isManualResident: false,
-      }));
-    } else {
-      setForm((prev) => ({
-        ...prev,
-        propertyName: newPropName,
-        propertyId: prop?.id || '',
-        tenantId: '',
-        assignedResident: '',
-        unitNumber: '',
-        isManualResident: true,
-      }));
-    }
+    setForm((prev) => ({
+      ...prev,
+      propertyName: newPropName,
+      propertyId: prop?.id || '',
+      tenantId: '',
+      assignedResident: '',
+      unitNumber: '',
+      vehicle: '',
+      licensePlate: '',
+      permitTag: '',
+      isManualResident: false,
+    }));
   };
 
   const handleTenantChange = (selectedValue) => {
-    if (selectedValue === '__manual__' || selectedValue === '__none__') {
+    if (selectedValue === '__manual__' || selectedValue === '__none__' || !selectedValue) {
       setForm((prev) => ({
         ...prev,
         tenantId: '',
         assignedResident: '',
         unitNumber: '',
-        isManualResident: true,
+        vehicle: '',
+        licensePlate: '',
+        isManualResident: selectedValue === '__manual__',
       }));
       return;
     }
@@ -256,9 +236,9 @@ export default function ParkingList() {
         ...prev,
         tenantId: String(chosenTenant.id),
         assignedResident: chosenTenant.name || '',
-        unitNumber: chosenTenant.unitNumber || chosenTenant.unit?.unitNumber || prev.unitNumber || '',
-        vehicle: chosenTenant.vehicle || prev.vehicle || 'Toyota Camry (Black)',
-        licensePlate: chosenTenant.licensePlate || prev.licensePlate || 'NY · KJH-9021',
+        unitNumber: chosenTenant.unitNumber || chosenTenant.unit?.unitNumber || '',
+        vehicle: chosenTenant.vehicle || chosenTenant.vehicleModel || '',
+        licensePlate: chosenTenant.licensePlate || chosenTenant.vehiclePlate || '',
         isManualResident: false,
       }));
     }
@@ -819,14 +799,18 @@ export default function ParkingList() {
               label="Building / Property *"
               required
               value={form.propertyName}
-              options={propertyOptions.map((p) => ({ value: p.name, label: p.name }))}
+              options={[
+                { value: '', label: 'Select Property...' },
+                ...propertyOptions.map((p) => ({ value: p.name, label: p.name })),
+              ]}
               onChange={(e) => handlePropertyChange(e.target.value)}
             />
             <Select
               label="Resident / Tenant *"
               required
-              value={form.isManualResident ? '__manual__' : (form.tenantId || form.assignedResident)}
+              value={form.isManualResident ? '__manual__' : (form.tenantId || form.assignedResident || '')}
               options={[
+                { value: '', label: 'Select Resident / Tenant...' },
                 ...buildingTenants.map((t) => ({
                   value: String(t.id || t.name),
                   label: `${t.name} (Unit ${t.unitNumber || t.unit?.unitNumber || 'N/A'})`,
@@ -873,7 +857,7 @@ export default function ParkingList() {
               <Input
                 label="Unit Number *"
                 required
-                placeholder="e.g. A-101"
+                placeholder="e.g. Unit 2A"
                 value={form.unitNumber}
                 onChange={(e) => setForm({ ...form, unitNumber: e.target.value })}
               />
@@ -885,6 +869,7 @@ export default function ParkingList() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Input
                 label="Assigned Resident"
+                placeholder="Select resident above or enter manually"
                 value={form.assignedResident}
                 readOnly
                 className="bg-gray-50 text-gray-700"
@@ -892,10 +877,10 @@ export default function ParkingList() {
               <Input
                 label="Unit Number *"
                 required
-                placeholder="e.g. A-101"
+                placeholder="e.g. Unit 2A"
                 value={form.unitNumber}
                 onChange={(e) => setForm({ ...form, unitNumber: e.target.value })}
-                helperText="Auto-filled from tenant record"
+                helperText={form.unitNumber ? "Auto-filled from tenant record" : undefined}
               />
             </div>
           )}
@@ -904,7 +889,7 @@ export default function ParkingList() {
             <Input
               label="Vehicle (Make, Model, Color) *"
               required
-              placeholder="e.g. Tesla Model 3 (White)"
+              placeholder="e.g. Toyota Camry (Black)"
               value={form.vehicle}
               onChange={(e) => setForm({ ...form, vehicle: e.target.value })}
             />
@@ -920,12 +905,14 @@ export default function ParkingList() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input
               label="Parking Permit Tag #"
+              placeholder="e.g. PRM-2026-003"
               value={form.permitTag}
               onChange={(e) => setForm({ ...form, permitTag: e.target.value })}
             />
             <Input
               label="Monthly Fee ($/mo)"
               type="number"
+              placeholder="e.g. 150"
               value={form.monthlyFee}
               onChange={(e) => setForm({ ...form, monthlyFee: e.target.value })}
             />
@@ -989,7 +976,7 @@ export default function ParkingList() {
             <Input
               label="Default Monthly Fee ($)"
               type="number"
-              placeholder="150"
+              placeholder="e.g. 150"
               value={addForm.monthlyFee}
               onChange={(e) => setAddForm({ ...addForm, monthlyFee: e.target.value })}
             />

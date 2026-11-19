@@ -89,6 +89,9 @@ export default function TenantProfile() {
       const updated = tenantsList.filter((t) => String(t.id) !== String(tenant.id));
       setTenantsList(updated);
       localStorage.setItem('custom_tenants', JSON.stringify(updated));
+      try {
+        window.dispatchEvent(new Event('rentlock_tenants_changed'));
+      } catch {}
       setIsDeleteModalOpen(false);
       toast.success(`${tenant.name} deleted successfully from database.`);
       navigate('/tenants');
@@ -97,6 +100,9 @@ export default function TenantProfile() {
       const updated = tenantsList.filter((t) => String(t.id) !== String(tenant.id));
       setTenantsList(updated);
       localStorage.setItem('custom_tenants', JSON.stringify(updated));
+      try {
+        window.dispatchEvent(new Event('rentlock_tenants_changed'));
+      } catch {}
       setIsDeleteModalOpen(false);
       toast.success(`${tenant.name} removed.`);
       navigate('/tenants');

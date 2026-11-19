@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   FileText, Download, Archive, RefreshCw, AlertTriangle, ShieldCheck, CheckCircle2
@@ -9,6 +9,7 @@ import Card from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
+import apiClient from '../../services/apiClient';
 import { getLeases, archiveLease, updateLease } from '../../data/mockLeases';
 import { formatUsd, formatDate } from '../../utils/formatters';
 
@@ -16,6 +17,23 @@ export default function LeaseDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [leasesList, setLeasesList] = useState(() => getLeases());
+
+  useEffect(() => {
+    apiClient.get(`/leases/${id}`).then((res) => {
+      if (res && res.id) {
+        setLeasesList((prev) => {
+          const idx = prev.findIndex((l) => String(l.id) === String(id));
+          if (idx > -1) {
+            const updated = [...prev];
+            updated[idx] = { ...updated[idx], ...res };
+            return updated;
+          }
+          return [...prev, res];
+        });
+      }
+    }).catch(() => {});
+  }, [id]);
+
   const lease = leasesList.find((l) => String(l.id) === String(id)) || leasesList[0];
 
   const [isArchiveModalOpen, setIsArchiveModalOpen] = useState(false);
@@ -134,7 +152,9 @@ export default function LeaseDetail() {
                 lease.rentSchedule.map((row, idx) => (
                   <div key={idx} className="flex justify-between text-xs py-1 border-b border-gray-100 last:border-0">
                     <span className="text-gray-700">{row.year} ({formatDate(row.effective)})</span>
-                    <span className="font-bold text-indigo-700">{formatUsd(row.monthlyRent)} · {row.change}</span>
+                    <span className="font-bold text-indigo-700">
+                      {formatUsd(row.newRent || row.monthlyRent || row.rent || 0)} · {row.change || (idx === 0 ? 'Base' : `${row.increaseType === 'Fixed Amount ($)' ? `+$${row.increaseValue}` : `+${row.increaseValue}%`}`)}
+                    </span>
                   </div>
                 ))
               ) : (
