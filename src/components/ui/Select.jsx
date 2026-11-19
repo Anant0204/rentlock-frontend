@@ -97,7 +97,7 @@ export default function Select({
 
       {isOpen && (
         <div
-          className={`absolute left-0 right-0 ${
+          className={`absolute left-0 min-w-full w-max max-w-sm ${
             openUp
               ? 'bottom-[100%] mb-1.5 animate-in fade-in slide-in-from-bottom-2'
               : 'top-[100%] mt-1.5 animate-in fade-in slide-in-from-top-2'
@@ -105,7 +105,7 @@ export default function Select({
         >
           <div className="max-h-60 overflow-y-auto p-1.5 space-y-0.5">
             <div 
-              className={`px-3 py-2 text-sm rounded-lg cursor-pointer transition-colors ${!value ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-gray-500 hover:bg-gray-50'}`}
+              className={`px-3 py-2 text-sm rounded-lg cursor-pointer transition-colors whitespace-nowrap ${!value ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-gray-500 hover:bg-gray-50'}`}
               onClick={() => handleSelect('')}
             >
               {placeholder}
@@ -118,7 +118,7 @@ export default function Select({
               return (
                 <div 
                   key={idx}
-                  className={`px-3 py-2 text-sm rounded-lg cursor-pointer transition-colors ${isSelected ? 'bg-indigo-500 text-white font-bold' : 'text-gray-700 hover:bg-gray-100'}`}
+                  className={`px-3 py-2 text-sm rounded-lg cursor-pointer transition-colors whitespace-nowrap ${isSelected ? 'bg-indigo-500 text-white font-bold' : 'text-gray-700 hover:bg-gray-100'}`}
                   onClick={() => handleSelect(val)}
                 >
                   {lbl}

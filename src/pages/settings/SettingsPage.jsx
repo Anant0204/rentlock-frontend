@@ -473,8 +473,8 @@ export default function SettingsPage() {
         {[
           { id: 'company', label: 'Company Defaults (U.S.)' },
           { id: 'rbac', label: 'Account Access & RBAC' },
-          { id: 'backups', label: 'Backups, Audit & Sessions' },
-          { id: 'health', label: 'Connection Health (5)' },
+          // { id: 'backups', label: 'Backups, Audit & Sessions' },
+          // { id: 'health', label: 'Connection Health (5)' },
         ].map((t) => (
           <button
             key={t.id}
@@ -497,10 +497,12 @@ export default function SettingsPage() {
             <Input label="Federal EIN (Masked Display)" value={settings.ein} onChange={(e) => setSettings({ ...settings, ein: e.target.value })} />
             <Input label="Support Email" value={settings.supportEmail} onChange={(e) => setSettings({ ...settings, supportEmail: e.target.value })} />
             <Input label="Support U.S. Phone" value={settings.supportPhone} onChange={(e) => setSettings({ ...settings, supportPhone: e.target.value })} />
+            {/*
             <Select label="Default Currency" value={settings.currency} options={['USD ($)']} onChange={(e) => setSettings({ ...settings, currency: e.target.value })} />
             <Select label="Default Date Format" value={settings.dateFormat} options={['MM/DD/YYYY']} onChange={(e) => setSettings({ ...settings, dateFormat: e.target.value })} />
             <Select label="Primary Timezone" value={settings.timezone} options={['America/New_York (ET)', 'America/Chicago (CT)', 'America/Los_Angeles (PT)']} onChange={(e) => setSettings({ ...settings, timezone: e.target.value })} />
             <Select label="Default Accounting Basis" value={settings.accountingBasis} options={['Accrual', 'Cash']} onChange={(e) => setSettings({ ...settings, accountingBasis: e.target.value })} />
+            */}
           </div>
           <Input label="Registered U.S. Office Address" value={settings.address} onChange={(e) => setSettings({ ...settings, address: e.target.value })} />
           <Button icon={Save} onClick={saveCompanySettings}>Save Company Defaults</Button>
@@ -989,8 +991,8 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* TAB 4: Backups, Audit Log & Active Sessions */}
-      {activeTab === 'backups' && (
+      {/* TAB 4: Backups, Audit Log & Active Sessions (Disabled) */}
+      {false && activeTab === 'backups' && (
         <div className="space-y-6">
           {/* Portfolio Flow Testing & Data Control Card */}
           <Card className="p-6 space-y-4 border-2 border-indigo-100 bg-gradient-to-br from-white to-indigo-50/30">
@@ -1150,8 +1152,8 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* TAB 5: Connection Health */}
-      {activeTab === 'health' && (
+      {/* TAB 5: Connection Health (Disabled) */}
+      {false && activeTab === 'health' && (
         <Card className="p-6 space-y-4">
           <div className="flex items-center justify-between">
             <div>
