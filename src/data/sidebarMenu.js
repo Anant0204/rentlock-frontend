@@ -38,6 +38,7 @@ export const sidebarMenu = [
       { label: 'Expenses', icon: Receipt, path: '/owner/expenses', roles: ['owner'] },
       { label: 'Disbursements', icon: Landmark, path: '/owner/disbursements', roles: ['owner'] },
       { label: 'Records', icon: FolderOpen, path: '/owner/records', roles: ['owner'] },
+      { label: 'Communication', icon: Megaphone, path: '/owner/communication', roles: ['owner'] },
     ],
   },
   {
@@ -47,7 +48,7 @@ export const sidebarMenu = [
       { label: 'Properties', icon: Building2, path: '/manager/properties', roles: ['manager'] },
       { label: 'Tenants', icon: Users, path: '/manager/tenants', roles: ['manager'] },
       { label: 'Work Orders', icon: Wrench, path: '/manager/work-orders', roles: ['manager'] },
-      { label: 'Messages & Email', icon: MessageSquare, path: '/manager/messages', roles: ['manager'] },
+      { label: 'Communication', icon: Megaphone, path: '/manager/communication', roles: ['manager'] },
       { label: 'Schedule', icon: CalendarCheck, path: '/manager/schedule', roles: ['manager'] },
       { label: 'Reports', icon: BarChart3, path: '/manager/reports', roles: ['manager'] },
     ],

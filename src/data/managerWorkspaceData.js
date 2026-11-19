@@ -132,6 +132,8 @@ export function getManagerWorkspaceState() {
 
     return {
       id: existing?.id || propId,
+      originalId: p.id,
+      numericId: !isNaN(parseInt(p.id, 10)) ? parseInt(p.id, 10) : null,
       name: p.name,
       address: p.address || p.street || '123 Main St',
       shortLocation: p.city ? `${p.city}, ${p.state || 'NY'}` : (p.address || 'Metro Area'),

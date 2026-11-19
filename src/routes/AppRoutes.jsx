@@ -75,6 +75,7 @@ import OwnerIncomeOut from '../pages/owner/OwnerIncomeOut';
 import OwnerExpenses from '../pages/owner/OwnerExpenses';
 import OwnerDisbursements from '../pages/owner/OwnerDisbursements';
 import OwnerRecords from '../pages/owner/OwnerRecords';
+import OwnerCommunication from '../pages/owner/OwnerCommunication';
 
 // Manager Workspace
 import ManagerProperties from '../pages/manager/ManagerProperties';
@@ -164,12 +165,15 @@ export default function AppRoutes() {
         <Route path="/owner/expenses" element={<OwnerExpenses />} />
         <Route path="/owner/disbursements" element={<OwnerDisbursements />} />
         <Route path="/owner/records" element={<OwnerRecords />} />
+        <Route path="/owner/communication" element={<OwnerCommunication />} />
+        <Route path="/owner/messages" element={<Navigate to="/owner/communication" replace />} />
 
         {/* Manager Workspace */}
         <Route path="/manager/properties" element={<ManagerProperties />} />
         <Route path="/manager/properties/:id" element={<ManagerPropertyDetail />} />
         <Route path="/manager/tenants" element={<ManagerTenants />} />
         <Route path="/manager/work-orders" element={<ManagerWorkOrders />} />
+        <Route path="/manager/communication" element={<ManagerMessages />} />
         <Route path="/manager/messages" element={<ManagerMessages />} />
         <Route path="/manager/schedule" element={<ManagerSchedule />} />
         <Route path="/manager/reports" element={<ManagerReports />} />

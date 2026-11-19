@@ -75,29 +75,20 @@ export const getUserNotifications = (user) => {
   const userId = user.id ? String(user.id) : null;
 
   return current.filter((n) => {
-    // 1. If notification is for a different role, don't show unless it's direct recipient or 'all'
-    if (n.targetRole && n.targetRole !== 'all' && n.targetRole !== userRole) {
-      const isDirectRecipient =
-        (n.recipientEmail && userEmail && n.recipientEmail === userEmail) ||
-        (n.recipientId && userId && String(n.recipientId) === userId);
-      return Boolean(isDirectRecipient);
+    // 1. Direct message targeted to a specific recipient (strict multi-tenant isolation)
+    if (n.recipientEmail || n.recipientId) {
+      const matchEmail = n.recipientEmail && userEmail && n.recipientEmail.toLowerCase().trim() === userEmail;
+      const matchId = n.recipientId && userId && String(n.recipientId) === userId;
+      return Boolean(matchEmail || matchId);
     }
 
-    // 2. Exact role match (Tenant gets Tenant messages, Manager gets Manager messages, etc.)
-    if (n.targetRole === userRole) {
-      return true;
-    }
-
-    // 3. System-wide broadcasts for all roles
+    // 2. System-wide broadcasts for all roles
     if (n.targetRole === 'all') {
       return true;
     }
 
-    // 4. Fallback direct match
-    if (n.recipientEmail && userEmail && n.recipientEmail === userEmail) {
-      return true;
-    }
-    if (n.recipientId && userId && String(n.recipientId) === userId) {
+    // 3. Role-wide broadcast announcements (no specific recipient targeted)
+    if (n.targetRole === userRole) {
       return true;
     }
 
