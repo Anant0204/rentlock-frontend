@@ -1,5 +1,6 @@
 import { ChevronUp, ChevronDown, Search, Download, ChevronLeft, ChevronRight, Building2, Trash2, Send, Share2, X, Eye } from 'lucide-react';
 import { AnimatePresence, motion as Motion } from 'framer-motion';
+import toast from 'react-hot-toast';
 
 export default function Table({
   columns, data, search, onSearch, sortKey, sortDir, onSort,
@@ -16,6 +17,37 @@ export default function Table({
   const safePageSize = pageSize || Math.max(data?.length || 10, 10);
   const safeTotalItems = totalItems ?? (data?.length || 0);
   const safeTotalPages = totalPages ?? Math.max(1, Math.ceil(safeTotalItems / safePageSize));
+
+  const handleDownloadCsv = () => {
+    if (!data || data.length === 0) {
+      toast.error('No data available to export');
+      return;
+    }
+    const visibleCols = (columns || []).filter((col) => col.key && col.label);
+    const headers = visibleCols.map((col) => `"${col.label.replace(/"/g, '""')}"`).join(',');
+    const rows = data.map((row) =>
+      visibleCols
+        .map((col) => {
+          let val = row[col.key];
+          if (val === null || val === undefined) val = '';
+          else if (typeof val === 'object') val = JSON.stringify(val);
+          return `"${String(val).replace(/"/g, '""')}"`;
+        })
+        .join(',')
+    );
+    const csvContent = [headers, ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const fileTitle = (title || 'export').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    a.download = `${fileTitle}-${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success(`${title || 'Table data'} exported as CSV!`);
+  };
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden relative">
@@ -95,7 +127,12 @@ export default function Table({
           <div className="flex flex-wrap items-center gap-2">
             {toolbarActions}
             {showDownload && (
-              <button className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 transition-colors text-gray-500 cursor-pointer">
+              <button
+                type="button"
+                onClick={handleDownloadCsv}
+                title="Export Table as CSV"
+                className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 transition-colors text-gray-500 hover:text-indigo-600 cursor-pointer flex items-center justify-center"
+              >
                 <Download className="w-4 h-4" />
               </button>
             )}

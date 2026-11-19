@@ -316,6 +316,7 @@ export default function OwnerProperties() {
             options={managers.map((m) => m.name)}
             value={selectedManager}
             onChange={(e) => setSelectedManager(e.target.value)}
+            direction="down"
           />
 
           <div className="p-3 bg-gray-50 rounded-xl border border-gray-100 text-[11px] text-gray-600 space-y-1">

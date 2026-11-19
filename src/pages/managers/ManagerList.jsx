@@ -292,6 +292,26 @@ export default function ManagerList() {
     return ['All Properties', ...allProperties.map((p) => p.name)];
   }, [allProperties]);
 
+  const handleExportCsv = () => {
+    const headers = 'ID,Name,Email,Phone,Emergency Contact,Status,Assigned Properties,Spending Cap\n';
+    const rows = (filteredManagers || [])
+      .map(
+        (m) =>
+          `"${m.id}","${m.name}","${m.email}","${m.phone}","${m.emergencyContact || ''}","${m.status}","${(m.properties || []).join(', ')}",${m.spendingCap || 1000}`
+      )
+      .join('\n');
+    const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'RentLock-Managers-Roster.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success('Manager roster exported as CSV.');
+  };
+
   return (
     <div className="space-y-6 pb-12">
       {/* Page Header */}
@@ -308,7 +328,7 @@ export default function ManagerList() {
               variant="secondary"
               icon={Download}
               size="sm"
-              onClick={() => toast.success('Manager roster exported to CSV.')}
+              onClick={handleExportCsv}
             >
               Export Roster
             </Button>

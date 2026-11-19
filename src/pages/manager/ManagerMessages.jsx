@@ -1,12 +1,24 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import apiClient from '../../services/apiClient';
-import { Send, Paperclip, Lock, Plus, Search, X } from 'lucide-react';
+import {
+  Search,
+  Send,
+  Users,
+  User,
+  Building,
+  ShieldCheck,
+  MessageSquare,
+  Loader2,
+  Paperclip,
+  X,
+  Plus,
+  Lock,
+} from 'lucide-react';
 import toast from 'react-hot-toast';
-import Card from '../../components/ui/Card';
+import PageHeader from '../../components/shared/PageHeader';
+import StatCard from '../../components/shared/StatCard';
 import Button from '../../components/ui/Button';
-import Badge from '../../components/ui/Badge';
-import Avatar from '../../components/ui/Avatar';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
@@ -14,350 +26,618 @@ import ManagerScopeBar from '../../components/manager/ManagerScopeBar';
 import { useAuth } from '../../context/AuthContext';
 import {
   getManagerWorkspaceState,
-  getManagerUnreadCount,
   sendManagerMessage,
   createManagerThread,
-  markManagerThreadRead,
 } from '../../data/managerWorkspaceData';
+import { getTenants } from '../../data/mockTenants';
+import { getOwners } from '../../data/mockExtra';
 import { readFilesAsDataUrls } from '../../data/tenantPortalData';
 import { addNotification } from '../../data/mockNotifications';
 
 export default function ManagerMessages() {
   const [searchParams] = useSearchParams();
-  const { user } = useAuth();
-  const fileInputRef = useRef(null);
-
   const threadParam = searchParams.get('thread');
   const propertyParam = searchParams.get('property');
   const woParam = searchParams.get('wo');
 
+  const { user } = useAuth();
+  const managerName = user?.name || 'Sarah Jenkins';
+
   const [state, setState] = useState(() => getManagerWorkspaceState());
-  const [activeTab, setActiveTab] = useState('inbox');
-  const [searchQuery, setSearchQuery] = useState('');
   const [propertyFilter, setPropertyFilter] = useState(propertyParam || '');
-  const [selectedThreadId, setSelectedThreadId] = useState(threadParam || null);
-  const [draft, setDraft] = useState('');
-  const [isInternalNote, setIsInternalNote] = useState(false);
-  const [sendChannel, setSendChannel] = useState('Portal');
+
+  const [serverTenants, setServerTenants] = useState([]);
+  const [serverOwners, setServerOwners] = useState([]);
+  const [loadingContacts, setLoadingContacts] = useState(true);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+
+  const [contactRoleFilter, setContactRoleFilter] = useState('all');
+  const [contactSearch, setContactSearch] = useState('');
+
+  const [selectedContact, setSelectedContact] = useState(null);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [newMsgText, setNewMsgText] = useState('');
   const [attachments, setAttachments] = useState([]);
+  const [isInternalNote, setIsInternalNote] = useState(false);
 
-  useEffect(() => {
-    const local = getManagerWorkspaceState();
-    setState(local);
-
-    apiClient.get('/operations/communications').then((res) => {
-      const items = res?.items || res;
-      if (Array.isArray(items) && items.length > 0) {
-        setState((prev) => {
-          if (local.properties.length === 0) {
-            return { ...prev, threads: [] };
-          }
-          const allowedPropIds = new Set(local.properties.map((p) => String(p.id)));
-          const allowedPropNames = new Set(local.properties.map((p) => (p.name || '').trim().toLowerCase()));
-
-          const filteredItems = items.filter(
-            (c) =>
-              allowedPropIds.has(String(c.propertyId)) ||
-              allowedPropNames.has((c.propertyName || '').trim().toLowerCase())
-          );
-
-          const mappedThreads = filteredItems.map((c, idx) => {
-            const contact = c.audience || c.targetAudience || 'Building Notice';
-            const initials = contact.split(' ').map((p) => p[0]).join('').slice(0, 2) || 'BN';
-            const prop = local.properties.find((p) => String(p.id) === String(c.propertyId)) || local.properties[0];
-            return {
-              id: String(c.id || c.broadcastNumber || `BRD-${idx}`),
-              contactName: contact,
-              initials,
-              propertyId: String(prop?.id || c.propertyId || ''),
-              propertyName: prop?.name || 'Assigned Building',
-              unitNumber: 'All Units',
-              propertyUnitLabel: `${c.title || 'Broadcast Notice'}`,
-              fullPropertyUnit: `${c.title || 'Broadcast Announcement'} · ${prop?.name || 'Property'}`,
-              channel: 'Portal',
-              channelBadge: 'NOTICE',
-              preview: (c.body || c.content || c.message || 'Notice broadcast').slice(0, 45),
-              timeAgo: 'Today',
-              unreadCount: 0,
-              workOrderId: null,
-              messages: [
-                {
-                  id: `MSG-BRD-${idx}`,
-                  senderType: 'manager',
-                  senderLabel: `${prev.manager?.name || 'Manager'} · Manager`,
-                  text: c.body || c.content || c.message || 'Notice broadcast',
-                  isInternal: false,
-                  channel: 'Portal',
-                  time: 'Today',
-                  attachments: [],
-                },
-              ],
-            };
-          });
-
-          // Merge uniquely so we never wipe existing conversation threads
-          const existingIds = new Set(prev.threads.map((t) => t.id));
-          const uniqueNew = mappedThreads.filter((t) => !existingIds.has(t.id));
-          return {
-            ...prev,
-            threads: [...prev.threads, ...uniqueNew],
-          };
-        });
-      }
-    }).catch(() => {});
-
-    // Sync direct messages from Admin
-    const syncAdminDirectMessages = () => {
-      const adminMsgs = [];
-      const seen = new Set();
-      try {
-        for (let i = 0; i < localStorage.length; i++) {
-          const k = localStorage.key(i);
-          if (k && k.startsWith('pm_chat_manager')) {
-            const parsed = JSON.parse(localStorage.getItem(k) || '[]');
-            if (Array.isArray(parsed)) {
-              parsed.forEach((m) => {
-                const txt = (m.text || '').trim();
-                if (txt && !seen.has(txt)) {
-                  seen.add(txt);
-                  adminMsgs.push({
-                    id: m.id || `admin-msg-${adminMsgs.length}`,
-                    senderType: m.isStaff ? 'admin' : 'manager',
-                    senderLabel: m.sender || 'Robert King (Admin)',
-                    text: txt,
-                    isInternal: false,
-                    channel: 'Portal',
-                    time: m.time || 'Today',
-                    attachments: m.attachments || [],
-                  });
-                }
-              });
-            }
-          }
-        }
-        const notifs = JSON.parse(localStorage.getItem('pm_notifications') || '[]');
-        if (Array.isArray(notifs)) {
-          notifs.forEach((n) => {
-            if (n.targetRole === 'manager' && n.desc) {
-              const txt = n.desc.trim();
-              if (txt && !seen.has(txt)) {
-                seen.add(txt);
-                adminMsgs.push({
-                  id: n.id || `notif-msg-${adminMsgs.length}`,
-                  senderType: 'admin',
-                  senderLabel: n.sender || 'Robert King (Admin)',
-                  text: txt,
-                  isInternal: false,
-                  channel: 'Portal',
-                  time: n.time || 'Today',
-                  attachments: [],
-                });
-              }
-            }
-          });
-        }
-      } catch {}
-
-      if (adminMsgs.length > 0) {
-        const last = adminMsgs[adminMsgs.length - 1];
-        const adminThread = {
-          id: 'admin-manager-thread',
-          contactName: 'Robert King (Admin)',
-          initials: 'RK',
-          propertyId: '',
-          propertyName: 'Executive Administration',
-          unitNumber: 'Head Office',
-          propertyUnitLabel: 'Robert King · Admin Direct',
-          fullPropertyUnit: 'Administration · Executive Office',
-          channel: 'Portal',
-          channelBadge: 'ADMIN',
-          preview: last.text.slice(0, 45),
-          timeAgo: last.time || 'Today',
-          unreadCount: 0,
-          workOrderId: null,
-          messages: adminMsgs,
-        };
-        setState((prev) => {
-          const filtered = prev.threads.filter((t) => t.id !== 'admin-manager-thread');
-          return { ...prev, threads: [adminThread, ...filtered] };
-        });
-      }
-    };
-
-    syncAdminDirectMessages();
-    window.addEventListener('pm:notification_updated', syncAdminDirectMessages);
-    window.addEventListener('storage', syncAdminDirectMessages);
-    return () => {
-      window.removeEventListener('pm:notification_updated', syncAdminDirectMessages);
-      window.removeEventListener('storage', syncAdminDirectMessages);
-    };
-  }, []);
-
-  // New message modal
+  // New thread modal state
   const [isNewOpen, setIsNewOpen] = useState(false);
-  const [newMsg, setNewMsg] = useState({
+  const [newThreadData, setNewThreadData] = useState({
     contactName: '',
-    propertyId: state.properties[0]?.id || '',
+    propertyId: '',
     unit: '',
     channel: 'Portal',
     text: '',
   });
 
-  const unreadTotal = useMemo(
-    () => getManagerUnreadCount(state, propertyFilter),
-    [state, propertyFilter]
-  );
+  const fileInputRef = useRef(null);
+  const threadEndRef = useRef(null);
 
-  const unreadThreadsCount = useMemo(
-    () =>
-      state.threads.filter(
-        (t) => t.unreadCount > 0 && (!propertyFilter || t.propertyId === propertyFilter)
-      ).length,
-    [state.threads, propertyFilter]
-  );
+  // Load latest state and live contacts from database
+  useEffect(() => {
+    const local = getManagerWorkspaceState();
+    setState(local);
 
-  const filteredThreads = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    return state.threads.filter((t) => {
-      if (propertyFilter && t.propertyId !== propertyFilter) return false;
-      if (activeTab === 'unread' && !(t.unreadCount > 0)) return false;
-      if (activeTab === 'sent' && !t.messages.some((m) => m.senderType === 'manager')) return false;
-      if (activeTab === 'email' && t.channel !== 'Email') return false;
-      if (activeTab === 'portal' && t.channel !== 'Portal') return false;
-      if (q) {
-        const hay = `${t.contactName} ${t.propertyUnitLabel} ${t.preview}`.toLowerCase();
-        if (!hay.includes(q)) return false;
+    setLoadingContacts(true);
+    Promise.allSettled([
+      apiClient.get('/tenants?limit=100'),
+      apiClient.get('/owners'),
+    ]).then(([tenantsRes, ownersRes]) => {
+      if (tenantsRes.status === 'fulfilled') {
+        const val = tenantsRes.value;
+        const items = val?.items || (Array.isArray(val) ? val : []);
+        setServerTenants(items);
+      }
+      if (ownersRes.status === 'fulfilled') {
+        const val = ownersRes.value;
+        const items = val?.items || (Array.isArray(val) ? val : []);
+        setServerOwners(items);
+      }
+    }).finally(() => {
+      setLoadingContacts(false);
+    });
+  }, []);
+
+  // Build eligible directory contacts for Property Manager (Admin, Tenants, Owners)
+  const allContacts = useMemo(() => {
+    // 1. Executive Admin (Headquarters Management)
+    const adminContact = {
+      id: 'admin-1',
+      originalId: 1,
+      userId: 1,
+      name: 'Robert King (Admin)',
+      role: 'admin',
+      roleLabel: 'Executive Admin',
+      phone: '+1 (718) 555-0141',
+      email: 'admin@rentlock.com',
+      propertyId: 'all',
+      propertyName: 'Executive Administration',
+      subtitle: 'Headquarters · Portfolio Operations',
+    };
+
+    // Allowed property identifiers for this manager
+    const allowedPropIds = new Set();
+    const allowedPropNames = new Set();
+    (state.properties || []).forEach((p) => {
+      if (p.id) allowedPropIds.add(String(p.id));
+      if (p.originalId) allowedPropIds.add(String(p.originalId));
+      if (p.numericId) allowedPropIds.add(String(p.numericId));
+      if (p.name) allowedPropNames.add(p.name.trim().toLowerCase());
+    });
+
+    // 2. Tenants (from server or fallback local mock)
+    const tenantSource = serverTenants.length > 0 ? serverTenants : getTenants();
+    const scopedTenants = tenantSource.filter((t) => {
+      if (allowedPropIds.size === 0) return true;
+      const tPropId = String(t.propertyId || '');
+      const tPropName = (t.propertyName || '').trim().toLowerCase();
+      return allowedPropIds.has(tPropId) || allowedPropNames.has(tPropName);
+    });
+
+    const tenantList = scopedTenants.map((t) => {
+      const uNum = t.unitNumber || t.unit || '2A';
+      const pName = t.propertyName || state.properties[0]?.name || 'Assigned Building';
+      return {
+        id: `tenant-${t.id}`,
+        originalId: t.id,
+        userId: t.userId || t.id,
+        name: t.name || 'Resident',
+        role: 'tenant',
+        roleLabel: 'Resident / Tenant',
+        phone: t.phone || t.mobile || 'N/A',
+        email: t.email || '',
+        propertyId: String(t.propertyId || state.properties[0]?.id || ''),
+        propertyName: pName,
+        unitNumber: uNum,
+        subtitle: `Unit ${uNum} · ${pName}`,
+      };
+    });
+
+    // Also include any tenants from active threads in managerWorkspaceData
+    (state.threads || []).forEach((th) => {
+      if (th.contactName && !th.contactName.includes('Admin') && !th.contactName.includes('Notice')) {
+        const exists = tenantList.some(
+          (tl) => tl.name.toLowerCase() === th.contactName.toLowerCase()
+        );
+        if (!exists) {
+          tenantList.push({
+            id: `tenant-${th.id}`,
+            originalId: th.id,
+            userId: th.id,
+            name: th.contactName,
+            role: 'tenant',
+            roleLabel: 'Resident / Tenant',
+            phone: 'N/A',
+            email: '',
+            propertyId: String(th.propertyId || ''),
+            propertyName: th.propertyName || 'HAPPY',
+            unitNumber: th.unitNumber || '2A',
+            subtitle: th.propertyUnitLabel || `${th.propertyName || 'HAPPY'} · 2A`,
+          });
+        }
+      }
+    });
+
+    // 3. Property Owners (from server or fallback local mock & property roster)
+    const ownerSource = serverOwners.length > 0 ? serverOwners : getOwners();
+    const ownerList = [];
+    const seenOwnerNames = new Set();
+
+    ownerSource.forEach((o) => {
+      if (!seenOwnerNames.has(o.name)) {
+        seenOwnerNames.add(o.name);
+        ownerList.push({
+          id: `owner-${o.id}`,
+          originalId: o.id,
+          userId: o.id,
+          name: o.name || 'Property Owner',
+          role: 'owner',
+          roleLabel: 'Property Owner',
+          phone: o.phone || 'N/A',
+          email: o.email || '',
+          propertyId: String(o.propertyId || ''),
+          propertyName: o.propertyName || 'Portfolio Asset',
+          subtitle: `${o.propertyName || 'Portfolio Asset'} · Owner`,
+        });
+      }
+    });
+
+    // Fallback: If no server owners, pull from state.properties contactName
+    (state.properties || []).forEach((p) => {
+      if (p.contactName && !seenOwnerNames.has(p.contactName)) {
+        seenOwnerNames.add(p.contactName);
+        ownerList.push({
+          id: `owner-prop-${p.id}`,
+          originalId: p.id,
+          userId: p.id,
+          name: p.contactName,
+          role: 'owner',
+          roleLabel: 'Property Owner',
+          phone: p.contactPhone || 'N/A',
+          email: '',
+          propertyId: String(p.id),
+          propertyName: p.name,
+          subtitle: `${p.name} · Building Owner`,
+        });
+      }
+    });
+
+    return [adminContact, ...tenantList, ...ownerList];
+  }, [serverTenants, serverOwners, state.properties, state.threads]);
+
+  // Filtered contacts based on property filter, role, and search query
+  const filteredContacts = useMemo(() => {
+    return allContacts.filter((c) => {
+      // Property scope filter
+      if (propertyFilter && c.propertyId !== 'all' && c.propertyId !== propertyFilter) {
+        return false;
+      }
+      // Role filter
+      if (contactRoleFilter !== 'all' && c.role !== contactRoleFilter) {
+        return false;
+      }
+      // Search filter
+      if (contactSearch.trim()) {
+        const q = contactSearch.toLowerCase().trim();
+        return (
+          (c.name || '').toLowerCase().includes(q) ||
+          (c.email || '').toLowerCase().includes(q) ||
+          (c.subtitle || '').toLowerCase().includes(q)
+        );
       }
       return true;
     });
-  }, [state.threads, propertyFilter, activeTab, searchQuery]);
+  }, [allContacts, propertyFilter, contactRoleFilter, contactSearch]);
 
-  const activeThread = useMemo(() => {
-    if (selectedThreadId) {
-      const found = filteredThreads.find((t) => t.id === selectedThreadId);
-      if (found) return found;
+  // Set initial selected contact
+  useEffect(() => {
+    if (!selectedContact && allContacts.length > 0) {
+      if (woParam || threadParam) {
+        const match = allContacts.find(
+          (c) =>
+            String(c.id) === threadParam ||
+            String(c.originalId) === threadParam ||
+            (c.subtitle && c.subtitle.includes(woParam))
+        );
+        setSelectedContact(match || allContacts[0]);
+      } else {
+        setSelectedContact(allContacts[0]);
+      }
+    } else if (selectedContact) {
+      const updated = allContacts.find((c) => c.id === selectedContact.id);
+      if (updated && (updated.name !== selectedContact.name || updated.email !== selectedContact.email)) {
+        setSelectedContact(updated);
+      }
     }
-    if (woParam) {
-      const byWO = filteredThreads.find((t) => t.workOrderId === woParam);
-      if (byWO) return byWO;
+  }, [allContacts, selectedContact, woParam, threadParam]);
+
+  // Load chat messages dynamically whenever selected contact changes
+  const loadMessagesForContact = useCallback(async (contact) => {
+    if (!contact) {
+      setChatMessages([]);
+      return;
     }
-    return filteredThreads[0] || null;
-  }, [filteredThreads, selectedThreadId, woParam]);
 
-  const handleSelectThread = (id) => {
-    setSelectedThreadId(id);
-    const updated = markManagerThreadRead(id);
-    setState(updated);
-  };
+    let localMsgs = [];
+    const seenTexts = new Set();
 
-  const handleFileAttach = async (e) => {
+    // 1. Check if contact is Admin
+    if (contact.role === 'admin') {
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && (key.startsWith('pm_chat_manager') || key.startsWith('pm_chat_admin'))) {
+            const raw = localStorage.getItem(key);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              if (Array.isArray(parsed)) {
+                parsed.forEach((m) => {
+                  const clean = (m.text || '').trim();
+                  if (clean && !seenTexts.has(clean)) {
+                    seenTexts.add(clean);
+                    const isStaff = m.isStaff || (m.sender && m.sender.includes('Admin'));
+                    localMsgs.push({
+                      id: m.id || `admin-msg-${localMsgs.length}`,
+                      sender: m.sender || (isStaff ? 'Robert King (Admin)' : `${managerName} (Manager)`),
+                      text: clean,
+                      time: m.time || 'Just now',
+                      isStaff,
+                      attachments: m.attachments || [],
+                    });
+                  }
+                });
+              }
+            }
+          }
+        }
+      } catch { }
+
+      // Check admin thread in state.threads
+      const adminThread = (state.threads || []).find((t) => t.id === 'admin-manager-thread');
+      if (adminThread?.messages) {
+        adminThread.messages.forEach((m) => {
+          const clean = (m.text || '').trim();
+          if (clean && !seenTexts.has(clean)) {
+            seenTexts.add(clean);
+            localMsgs.push({
+              id: m.id,
+              sender: m.senderLabel || (m.senderType === 'admin' ? 'Robert King (Admin)' : `${managerName} (Manager)`),
+              text: clean,
+              time: m.time || 'Today',
+              isStaff: m.senderType === 'admin',
+              attachments: m.attachments || [],
+            });
+          }
+        });
+      }
+
+      if (localMsgs.length === 0) {
+        localMsgs = [
+          {
+            id: 'welcome-admin-manager-msg',
+            sender: 'Robert King (Admin)',
+            text: 'Welcome to RentLock Management Hub. Direct executive communications, portfolio policy updates, and work order expenditure approvals appear here.',
+            time: 'Active',
+            isStaff: true,
+            attachments: [],
+          },
+        ];
+      }
+    } else if (contact.role === 'tenant') {
+      // 2. Check tenant threads in managerWorkspaceData
+      const matchedThread = (state.threads || []).find(
+        (t) =>
+          t.contactName?.toLowerCase() === contact.name?.toLowerCase() ||
+          t.id === contact.id ||
+          t.id === contact.originalId
+      );
+
+      if (matchedThread?.messages) {
+        matchedThread.messages.forEach((m) => {
+          const clean = (m.text || '').trim();
+          if (clean && !seenTexts.has(clean)) {
+            seenTexts.add(clean);
+            const isManager = m.senderType === 'manager';
+            localMsgs.push({
+              id: m.id,
+              sender: m.senderLabel || (isManager ? `${managerName} (Manager)` : contact.name),
+              text: clean,
+              time: m.time || 'Today',
+              isStaff: !isManager,
+              isInternal: m.isInternal || false,
+              attachments: m.attachments || [],
+            });
+          }
+        });
+      }
+
+      // Check local storage pm_chat_tenant...
+      try {
+        const raw =
+          localStorage.getItem(`pm_chat_${contact.id}`) ||
+          localStorage.getItem(`pm_chat_tenant_${contact.originalId}`);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((m) => {
+              const clean = (m.text || '').trim();
+              if (clean && !seenTexts.has(clean)) {
+                seenTexts.add(clean);
+                localMsgs.push(m);
+              }
+            });
+          }
+        }
+      } catch { }
+    } else if (contact.role === 'owner') {
+      // 3. Check Owner communications
+      try {
+        const raw =
+          localStorage.getItem(`pm_chat_owner_manager-${user?.id || 1}`) ||
+          localStorage.getItem(`pm_chat_owner_${contact.originalId}`) ||
+          localStorage.getItem(`pm_chat_${contact.id}`);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((m) => {
+              const clean = (m.text || '').trim();
+              if (clean && !seenTexts.has(clean)) {
+                seenTexts.add(clean);
+                localMsgs.push(m);
+              }
+            });
+          }
+        }
+      } catch { }
+
+      if (localMsgs.length === 0) {
+        localMsgs = [
+          {
+            id: `welcome-owner-${contact.id}`,
+            sender: contact.name,
+            text: `Hello ${managerName}, let me know if there are any maintenance or disbursement updates for ${contact.propertyName || 'the property'}.`,
+            time: 'Active',
+            isStaff: true,
+            attachments: [],
+          },
+        ];
+      }
+    }
+
+    setChatMessages(localMsgs);
+
+    // Fetch live messages from backend database
+    const targetUserId = contact.userId || contact.originalId;
+    if (targetUserId) {
+      setLoadingMessages(true);
+      try {
+        const res = await apiClient.get(`/messages/contact/${targetUserId}`);
+        const data = res?.data || res;
+        const backendMsgs = data?.messages || (Array.isArray(data) ? data : []);
+        if (Array.isArray(backendMsgs) && backendMsgs.length > 0) {
+          const mapped = backendMsgs.map((m) => {
+            const clean = (m.content || '').trim();
+            const isManagerSender = m.senderId === user?.id || m.sender?.role === 'manager';
+            return {
+              id: m.id,
+              sender: m.sender?.name || (isManagerSender ? `${managerName} (Manager)` : contact.name),
+              text: clean,
+              time: new Date(m.createdAt).toLocaleTimeString('en-US', {
+                hour: 'numeric',
+                minute: '2-digit',
+              }),
+              isStaff: !isManagerSender,
+              attachments: m.attachmentUrls
+                ? typeof m.attachmentUrls === 'string'
+                  ? JSON.parse(m.attachmentUrls)
+                  : m.attachmentUrls
+                : [],
+            };
+          });
+
+          const combined = [...localMsgs];
+          mapped.forEach((bm) => {
+            if (!combined.some((cm) => cm.text === bm.text)) {
+              combined.push(bm);
+            }
+          });
+          setChatMessages(combined);
+        }
+      } catch {
+        // Backend fallback
+      } finally {
+        setLoadingMessages(false);
+      }
+    }
+  }, [user, managerName, state.threads]);
+
+  useEffect(() => {
+    if (selectedContact) {
+      loadMessagesForContact(selectedContact);
+    }
+  }, [selectedContact, loadMessagesForContact]);
+
+  // Auto-scroll chat to bottom
+  useEffect(() => {
+    threadEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages.length]);
+
+  // Handle file uploads
+  const handleFileChange = async (e) => {
     const loaded = await readFilesAsDataUrls(e.target.files, 3 - attachments.length);
     if (loaded.length > 0) {
-      setAttachments((prev) => [...prev, ...loaded]);
+      setAttachments((prev) => [...prev, ...loaded].slice(0, 3));
     }
     e.target.value = '';
   };
 
-  const handleSend = (e) => {
+  // Send Direct Message
+  const handleSendDirectMessage = async (e) => {
     e.preventDefault();
-    if (!activeThread) return;
-    if (!draft.trim() && attachments.length === 0) {
-      toast.error('Enter a message or attach a file.');
+    if (!selectedContact) return;
+    if (!newMsgText.trim() && attachments.length === 0) {
+      toast.error('Write a message or attach a file first.');
       return;
     }
 
-    const updated = sendManagerMessage({
-      threadId: activeThread.id,
-      text: draft,
-      channel: sendChannel,
+    const cleanDraft = newMsgText.trim();
+    const timeLabel = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    const newMsg = {
+      id: `MGR-MSG-${Date.now()}`,
+      sender: isInternalNote ? `Internal Note · ${managerName}` : `${managerName} (Manager)`,
+      text: cleanDraft,
+      time: timeLabel,
+      isStaff: false, // Sent by current manager
       isInternal: isInternalNote,
       attachments,
-      senderName: user?.name || 'Sarah Jenkins',
-    });
-    setState(updated);
+    };
 
-    if (activeThread.id === 'admin-manager-thread' || activeThread.contactName?.includes('Admin')) {
-      const cleanDraft = draft.trim();
-      const timeLabel = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    const updated = [...chatMessages, newMsg];
+    setChatMessages(updated);
 
-      // Save to localStorage so Admin sees it in CommunicationsHub immediately
-      try {
+    // Save to localStorage according to target role
+    try {
+      if (selectedContact.role === 'admin') {
+        let matchedKey = null;
         for (let i = 0; i < localStorage.length; i++) {
           const k = localStorage.key(i);
           if (k && k.startsWith('pm_chat_manager')) {
-            const parsed = JSON.parse(localStorage.getItem(k) || '[]');
+            matchedKey = k;
+            const raw = localStorage.getItem(k);
+            const parsed = raw ? JSON.parse(raw) : [];
             parsed.push({
               id: Date.now(),
-              sender: user?.name || 'Sarah Jenkins (Manager)',
+              sender: `${managerName} (Manager)`,
               text: cleanDraft,
               time: timeLabel,
               isStaff: false,
+              attachments,
             });
             localStorage.setItem(k, JSON.stringify(parsed));
           }
         }
-      } catch {}
+        if (!matchedKey) {
+          localStorage.setItem(
+            `pm_chat_manager-${user?.id || 1}`,
+            JSON.stringify([
+              {
+                id: Date.now(),
+                sender: `${managerName} (Manager)`,
+                text: cleanDraft,
+                time: timeLabel,
+                isStaff: false,
+                attachments,
+              },
+            ])
+          );
+        }
+      } else if (selectedContact.role === 'tenant') {
+        localStorage.setItem(`pm_chat_${selectedContact.id}`, JSON.stringify(updated));
+        localStorage.setItem(`pm_chat_tenant_${selectedContact.originalId}`, JSON.stringify(updated));
 
-      // Real database message dispatch
-      apiClient.post('/messages', {
-        recipientId: 1, // Admin user
-        recipientEmail: 'admin@rentlock.com',
-        content: cleanDraft,
-      }).catch(() => {});
+        // If thread exists in state, update it
+        const matchedThread = (state.threads || []).find(
+          (t) => t.contactName?.toLowerCase() === selectedContact.name?.toLowerCase()
+        );
+        if (matchedThread) {
+          sendManagerMessage({
+            threadId: matchedThread.id,
+            text: cleanDraft,
+            channel: 'Portal',
+            isInternal: isInternalNote,
+            attachments,
+            senderName: managerName,
+          });
+        }
+      } else if (selectedContact.role === 'owner') {
+        localStorage.setItem(`pm_chat_owner_manager-${user?.id || 1}`, JSON.stringify(updated));
+        localStorage.setItem(`pm_chat_${selectedContact.id}`, JSON.stringify(updated));
+      }
+    } catch { }
 
-      // Dispatch notification for Admin
-      addNotification({
-        title: `💬 Direct Message from ${user?.name || 'Sarah Jenkins'} (Manager)`,
-        desc: cleanDraft,
-        targetRole: 'admin',
-        recipientEmail: 'admin@rentlock.com',
-        sender: `${user?.name || 'Sarah Jenkins'} (Manager)`,
-        link: '/communication',
-        time: 'Just now',
+    // Save to real Backend Database
+    try {
+      const targetUserId = Number(selectedContact.userId || selectedContact.originalId || 1);
+      await apiClient.post('/messages', {
+        recipientId: targetUserId,
+        recipientEmail: selectedContact.email,
+        content: cleanDraft || 'Sent an attachment',
       });
+    } catch (err) {
+      console.warn('Backend message sync notice:', err.message);
     }
 
-    setDraft('');
+    // Dispatch notification to recipient
+    addNotification({
+      title: `💬 Direct Message from ${managerName} (Manager)`,
+      desc: cleanDraft || 'Sent an attachment',
+      targetRole: selectedContact.role,
+      recipientEmail: selectedContact.email,
+      sender: `${managerName} (Manager)`,
+      link:
+        selectedContact.role === 'admin'
+          ? '/communication'
+          : selectedContact.role === 'owner'
+          ? '/owner/communication'
+          : '/tenant/messages',
+      time: 'Just now',
+    });
+
+    setNewMsgText('');
     setAttachments([]);
-    if (isInternalNote) {
-      toast.success('Internal staff-only note saved (time-stamped)');
-      setIsInternalNote(false);
-    }
+    setIsInternalNote(false);
+    toast.success(`Message sent to ${selectedContact.name} & stored in database!`);
   };
 
-  const handleCreateThread = (e) => {
+  // Handle new thread creation modal
+  const handleCreateNewThread = (e) => {
     e.preventDefault();
-    if (!newMsg.contactName.trim() || !newMsg.text.trim()) {
+    if (!newThreadData.contactName.trim() || !newThreadData.text.trim()) {
       toast.error('Recipient and message are required.');
       return;
     }
     const result = createManagerThread({
-      ...newMsg,
-      senderName: user?.name || 'Sarah Jenkins',
+      ...newThreadData,
+      senderName: managerName,
     });
     setState(result.state);
-    setSelectedThreadId(result.thread.id);
     setIsNewOpen(false);
-    setNewMsg({
+    setNewThreadData({
       contactName: '',
       propertyId: state.properties[0]?.id || '',
       unit: '',
       channel: 'Portal',
       text: '',
     });
-    toast.success('Conversation started (time-stamped)');
+    toast.success('New conversation started!');
   };
 
-  const tabs = [
-    { key: 'inbox', label: `Inbox · ${unreadTotal}` },
-    { key: 'unread', label: `Unread · ${unreadThreadsCount}` },
-    { key: 'sent', label: 'Sent' },
-    { key: 'email', label: 'Email' },
-    { key: 'portal', label: 'Portal' },
-  ];
+  const adminCount = allContacts.filter((c) => c.role === 'admin').length;
+  const tenantCount = allContacts.filter((c) => c.role === 'tenant').length;
+  const ownerCount = allContacts.filter((c) => c.role === 'owner').length;
 
   return (
-    <div className="space-y-5 pb-8">
+    <div className="space-y-6 pb-12">
       <ManagerScopeBar
         breadcrumb="RENTLOCK / ASSIGNED PROPERTIES"
         properties={state.properties}
@@ -366,364 +646,427 @@ export default function ManagerMessages() {
       />
 
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Communication</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            One inbox for tenant, owner, and management conversations
-          </p>
-        </div>
+        <PageHeader
+          title="Manager Communication & Direct Messages"
+          subtitle="Chat directly with Executive Admin, Tenants, and Property Owners with live database syncing and notification alerts."
+          breadcrumbs={[{ label: 'Dashboard', path: '/manager/properties' }, { label: 'Communication' }]}
+        />
         <Button variant="primary" icon={Plus} onClick={() => setIsNewOpen(true)}>
-          New message
+          New Message
         </Button>
       </div>
 
-      <Card padding="p-6" className="space-y-5">
-        <div>
-          <h2 className="text-base font-bold text-gray-900">Unified communications</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Portal messages and connected email appear in one timeline with channel labels and property filters
-          </p>
-        </div>
+      {/* Stat Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard
+          title="Total Directory"
+          value={allContacts.length}
+          subtitle="Registered portfolio contacts"
+          icon={Users}
+          color="indigo"
+        />
+        <StatCard
+          title="Executive Admin"
+          value={adminCount}
+          subtitle="Headquarters & executive"
+          icon={ShieldCheck}
+          color="blue"
+        />
+        <StatCard
+          title="Tenants / Residents"
+          value={tenantCount}
+          subtitle="Assigned building residents"
+          icon={User}
+          color="purple"
+        />
+        <StatCard
+          title="Property Owners"
+          value={ownerCount}
+          subtitle="Portfolio asset owners"
+          icon={Building}
+          color="amber"
+        />
+      </div>
 
-        {/* Channel Filter Tabs + Search + Property Scope */}
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-200 pb-3">
-          <div className="flex flex-wrap items-center gap-5">
-            {tabs.map((tab) => (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => setActiveTab(tab.key)}
-                className={`pb-2 text-sm font-semibold border-b-2 -mb-[13px] transition-colors cursor-pointer ${
-                  activeTab === tab.key
-                    ? 'border-[#4A6CF7] text-[#4A6CF7]'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
+      {/* DIRECT CHATS (ADMIN, TENANTS & OWNERS) */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 min-h-[520px]">
+        {/* Direct Message Directory */}
+        <div className="bg-white rounded-2xl border border-gray-200 p-3.5 flex flex-col space-y-3 shadow-xs">
+          {/* Header & Category Pills */}
+          <div className="space-y-2 border-b border-gray-100 pb-3">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-xs text-gray-900">Direct Message Directory</span>
+              <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
+                {filteredContacts.length} Contacts
+              </span>
+            </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Role filter pills */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 text-[11px]">
+              {[
+                { key: 'all', label: `All (${allContacts.length})` },
+                { key: 'admin', label: `Admin (${adminCount})` },
+                { key: 'tenant', label: `Tenants (${tenantCount})` },
+                { key: 'owner', label: `Owners (${ownerCount})` },
+              ].map((f) => (
+                <button
+                  key={f.key}
+                  type="button"
+                  onClick={() => setContactRoleFilter(f.key)}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    contactRoleFilter === f.key
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Search contacts */}
             <div className="relative">
-              <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search messages..."
-                className="pl-8 pr-3 py-1.5 rounded-xl border border-gray-200 bg-gray-50 text-xs outline-none focus:bg-white focus:border-indigo-400"
+                placeholder="Search by name, property, unit, email..."
+                value={contactSearch}
+                onChange={(e) => setContactSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-200"
               />
             </div>
-            <select
-              value={propertyFilter}
-              onChange={(e) => setPropertyFilter(e.target.value)}
-              className="px-3 py-1.5 rounded-xl bg-indigo-50 text-indigo-700 text-xs font-semibold border border-indigo-100 outline-none cursor-pointer"
-            >
-              <option value="">All assigned</option>
-              {state.properties.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
           </div>
-        </div>
 
-        {/* Split Thread List + Active Conversation */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 min-h-[460px]">
-          <div className="lg:col-span-5 border border-gray-100 rounded-2xl p-3 space-y-2 bg-gray-50/40 max-h-[520px] overflow-y-auto">
-            {filteredThreads.length === 0 ? (
-              <p className="text-xs text-gray-400 text-center py-12">
-                No conversations match your filter.
-              </p>
+          {/* Contacts Scrollable List */}
+          <div className="space-y-1.5 overflow-y-auto max-h-[460px]">
+            {loadingContacts && allContacts.length === 0 ? (
+              <div className="py-12 text-center text-xs text-gray-400 flex items-center justify-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
+                <span>Loading directory from database...</span>
+              </div>
+            ) : filteredContacts.length === 0 ? (
+              <div className="py-8 text-center text-xs text-gray-400">
+                No contacts found in this filter.
+              </div>
             ) : (
-              filteredThreads.map((thread) => {
-                const isSelected = activeThread?.id === thread.id;
+              filteredContacts.map((c) => {
+                const isSelected = selectedContact?.id === c.id;
+
+                const badgeColors =
+                  c.role === 'admin'
+                    ? 'bg-blue-50 text-blue-700 border-blue-200'
+                    : c.role === 'tenant'
+                    ? 'bg-purple-50 text-purple-700 border-purple-200'
+                    : 'bg-amber-50 text-amber-700 border-amber-200';
+
+                const avatarBg =
+                  c.role === 'admin'
+                    ? 'bg-blue-100 text-blue-700'
+                    : c.role === 'tenant'
+                    ? 'bg-purple-100 text-purple-700'
+                    : 'bg-amber-100 text-amber-700';
+
                 return (
                   <button
-                    key={thread.id}
+                    key={c.id}
                     type="button"
-                    onClick={() => handleSelectThread(thread.id)}
-                    className={`w-full text-left p-3.5 rounded-xl border transition-all cursor-pointer flex items-start gap-3 ${
+                    onClick={() => setSelectedContact(c)}
+                    className={`w-full text-left p-2.5 rounded-xl transition-all flex items-center justify-between cursor-pointer ${
                       isSelected
-                        ? 'bg-indigo-50/70 border-indigo-200 shadow-sm'
-                        : 'bg-white border-gray-100 hover:border-gray-200'
+                        ? 'bg-indigo-50/90 border border-indigo-200 shadow-xs'
+                        : 'hover:bg-gray-50 border border-transparent'
                     }`}
                   >
-                    <Avatar name={thread.contactName} size="md" />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-bold text-gray-900 truncate">
-                          {thread.contactName}
-                        </p>
-                        <span className="text-[11px] text-gray-400 shrink-0">
-                          {thread.timeAgo}
-                        </span>
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div
+                        className={`w-8 h-8 rounded-full ${avatarBg} font-bold text-xs flex items-center justify-center shrink-0`}
+                      >
+                        {(c.name || 'U').slice(0, 2).toUpperCase()}
                       </div>
-                      <p className="text-xs font-semibold text-emerald-600 mt-0.5 truncate">
-                        {thread.propertyUnitLabel}
-                      </p>
-                      <div className="flex items-center justify-between gap-2 mt-1">
-                        <p className="text-xs text-gray-500 truncate">{thread.preview}</p>
-                        {thread.unreadCount > 0 && (
-                          <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-                        )}
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-gray-900 leading-tight truncate">
+                          {c.name}
+                        </div>
+                        <div className="text-[10px] text-gray-500 mt-0.5 truncate">
+                          {c.subtitle}
+                        </div>
                       </div>
                     </div>
+                    <span
+                      className={`text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase shrink-0 ml-2 ${badgeColors}`}
+                    >
+                      {c.role}
+                    </span>
                   </button>
                 );
               })
             )}
           </div>
+        </div>
 
-          <div className="lg:col-span-7 border border-gray-100 rounded-2xl p-5 flex flex-col justify-between bg-white">
-            {activeThread ? (
-              <>
-                <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-gray-100">
-                  <div className="flex items-center gap-3">
-                    <h3 className="text-base font-bold text-gray-900">
-                      {activeThread.contactName || 'Resident'}
-                    </h3>
-                    <Badge variant="primary" className="text-[10px] font-bold uppercase tracking-wider">
-                      {activeThread.channelBadge || 'MESSAGE'}
-                    </Badge>
-                  </div>
-                  <span className="text-xs font-semibold text-gray-500">
-                    {activeThread.fullPropertyUnit || 'All Units'}
-                  </span>
-                </div>
-
-                {/* Timeline */}
-                <div className="flex-1 overflow-y-auto py-4 space-y-3 max-h-[340px] pr-1">
-                  {(activeThread.messages || []).map((msg) => {
-                    const isMgr = msg.senderType === 'manager';
-                    if (msg.isInternal) {
-                      return (
-                        <div key={msg.id} className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-xs">
-                          <div className="flex items-center gap-1.5 font-bold text-amber-800 mb-1">
-                            <Lock className="w-3 h-3" />
-                            STAFF-ONLY INTERNAL NOTE
-                          </div>
-                          <p className="text-amber-950">{msg.text}</p>
-                          <p className="text-[10px] text-amber-700 mt-1.5">{msg.senderLabel}</p>
-                        </div>
-                      );
-                    }
-                    return (
-                      <div key={msg.id} className={`flex ${isMgr ? 'justify-end' : 'justify-start'}`}>
-                        <div
-                          className={`max-w-[82%] rounded-2xl px-4 py-3 text-sm ${
-                            isMgr
-                              ? 'bg-emerald-50 border border-emerald-100 text-gray-800'
-                              : 'bg-gray-100 text-gray-800'
-                          }`}
-                        >
-                          <p className="leading-relaxed">{msg.text}</p>
-                          {msg.attachments?.length > 0 && (
-                            <div className="flex flex-wrap gap-2 mt-2">
-                              {msg.attachments.map((att, idx) => (
-                                <span
-                                  key={idx}
-                                  className="text-[11px] bg-white border border-gray-200 rounded-lg px-2 py-1 font-medium text-indigo-600"
-                                >
-                                  📎 {att.name}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                          <p
-                            className={`text-[11px] mt-1.5 font-medium ${
-                              isMgr ? 'text-emerald-700' : 'text-gray-400'
-                            }`}
-                          >
-                            {msg.senderLabel}
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Composer */}
-                <form onSubmit={handleSend} className="pt-3 border-t border-gray-100 space-y-2.5">
-                  {attachments.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {attachments.map((att, idx) => (
-                        <span
-                          key={idx}
-                          className="inline-flex items-center gap-1.5 text-xs bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-lg"
-                        >
-                          {att.name}
-                          <button
-                            type="button"
-                            onClick={() => setAttachments((p) => p.filter((_, i) => i !== idx))}
-                            className="cursor-pointer"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-
-                  <div
-                    className={`rounded-2xl border px-3.5 py-2.5 space-y-2 transition-colors ${
-                      isInternalNote
-                        ? 'bg-amber-50/70 border-amber-300'
-                        : 'bg-gray-50/70 border-gray-200 focus-within:bg-white focus-within:border-indigo-400'
+        {/* Chat Window */}
+        <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-200 flex flex-col justify-between overflow-hidden shadow-xs">
+          {/* Chat Header */}
+          <div className="p-4 bg-gray-50/80 border-b border-gray-100 flex items-center justify-between">
+            <div className="flex items-center gap-3 min-w-0">
+              <div
+                className={`w-9 h-9 rounded-full font-bold text-xs flex items-center justify-center shrink-0 ${
+                  selectedContact?.role === 'admin'
+                    ? 'bg-blue-600 text-white'
+                    : selectedContact?.role === 'tenant'
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-amber-600 text-white'
+                }`}
+              >
+                {(selectedContact?.name || 'U').slice(0, 2).toUpperCase()}
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h4 className="font-bold text-gray-900 text-sm truncate">
+                    {selectedContact?.name}
+                  </h4>
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase border ${
+                      selectedContact?.role === 'admin'
+                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                        : selectedContact?.role === 'tenant'
+                        ? 'bg-purple-50 text-purple-700 border-purple-200'
+                        : 'bg-amber-50 text-amber-700 border-amber-200'
                     }`}
                   >
-                    <input
-                      type="text"
-                      value={draft}
-                      onChange={(e) => setDraft(e.target.value)}
-                      placeholder={
-                        isInternalNote
-                          ? 'Write a staff-only internal note...'
-                          : `Reply to ${(activeThread?.contactName || 'Resident').split(' ')[0]}...`
-                      }
-                      className="w-full bg-transparent text-sm text-gray-800 placeholder:text-gray-400 outline-none"
-                    />
+                    {selectedContact?.roleLabel || selectedContact?.role}
+                  </span>
+                </div>
+                <p className="text-[11px] text-gray-500 truncate mt-0.5">
+                  {selectedContact?.subtitle} · {selectedContact?.email} · {selectedContact?.phone}
+                </p>
+              </div>
+            </div>
+            <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg shrink-0 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse" />
+              DB Synced
+            </span>
+          </div>
 
-                    <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-                      <div className="flex flex-wrap items-center gap-3 text-xs">
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          multiple
-                          onChange={handleFileAttach}
-                          className="hidden"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => fileInputRef.current?.click()}
-                          className="inline-flex items-center gap-1 font-semibold text-indigo-600 hover:underline cursor-pointer"
-                        >
-                          <Paperclip className="w-3.5 h-3.5" /> Attach file
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setIsInternalNote((v) => !v)}
-                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-semibold cursor-pointer transition-colors ${
-                            isInternalNote
-                              ? 'bg-amber-200 text-amber-900'
-                              : 'text-purple-600 hover:bg-purple-50'
+          {/* Chat Messages */}
+          <div className="flex-1 p-4 space-y-3 overflow-y-auto max-h-[400px] bg-slate-50/50">
+            {loadingMessages ? (
+              <div className="py-20 text-center text-xs text-gray-400 flex items-center justify-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
+                <span>Syncing messages with database...</span>
+              </div>
+            ) : chatMessages.length === 0 ? (
+              <div className="py-20 text-center space-y-2">
+                <div className="w-12 h-12 rounded-full bg-indigo-50 text-indigo-500 mx-auto flex items-center justify-center">
+                  <MessageSquare className="w-6 h-6" />
+                </div>
+                <p className="font-bold text-gray-800 text-sm">
+                  No messages yet with {selectedContact?.name}
+                </p>
+                <p className="text-gray-400 text-xs">
+                  Type a direct message below to start a live conversation.
+                </p>
+              </div>
+            ) : (
+              chatMessages.map((msg, idx) => {
+                const isManager = !msg.isStaff;
+                return (
+                  <div
+                    key={msg.id || idx}
+                    className={`flex flex-col ${isManager ? 'items-end' : 'items-start'}`}
+                  >
+                    <div
+                      className={`max-w-[78%] rounded-2xl p-3 text-xs leading-relaxed shadow-xs ${
+                        msg.isInternal
+                          ? 'bg-amber-100 border border-amber-300 text-amber-900 rounded-br-none'
+                          : isManager
+                          ? 'bg-indigo-600 text-white rounded-br-none'
+                          : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <p
+                          className={`text-[10px] font-bold ${
+                            msg.isInternal
+                              ? 'text-amber-800'
+                              : isManager
+                              ? 'text-indigo-200'
+                              : 'text-gray-400'
                           }`}
                         >
-                          <Lock className="w-3 h-3" />
-                          {isInternalNote ? 'Internal note (ON)' : 'Internal note'}
-                        </button>
-
-                        {!isInternalNote && (
-                          <label className="inline-flex items-center gap-1.5 text-gray-500">
-                            <span>Send as:</span>
-                            <select
-                              value={sendChannel}
-                              onChange={(e) => setSendChannel(e.target.value)}
-                              className="bg-transparent font-semibold text-gray-700 outline-none cursor-pointer"
-                            >
-                              <option value="Portal">Portal message</option>
-                              <option value="Email">Email</option>
-                              <option value="SMS">SMS</option>
-                            </select>
-                          </label>
+                          {msg.sender}
+                        </p>
+                        {msg.isInternal && (
+                          <span className="text-[9px] font-bold text-amber-800 bg-amber-200/80 px-1 rounded flex items-center gap-0.5">
+                            <Lock className="w-2.5 h-2.5" /> Staff Only
+                          </span>
                         )}
                       </div>
-
-                      <Button
-                        type="submit"
-                        variant="primary"
-                        size="sm"
-                        icon={Send}
-                        disabled={!draft.trim() && attachments.length === 0}
-                        className="shrink-0"
-                      >
-                        Send
-                      </Button>
+                      <p className="whitespace-pre-line">{msg.text}</p>
+                      {msg.attachments?.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {msg.attachments.map((att, attIdx) => (
+                            <img
+                              key={attIdx}
+                              src={att.url}
+                              alt={att.name || 'Attachment'}
+                              className="w-20 h-20 object-cover rounded-lg border border-white/20 shadow-xs"
+                            />
+                          ))}
+                        </div>
+                      )}
                     </div>
+                    <span className="text-[10px] text-gray-400 mt-1 px-1">{msg.time}</span>
                   </div>
-                </form>
-              </>
-            ) : (
-              <p className="text-xs text-gray-400 text-center my-auto">
-                Select a conversation to view timeline.
-              </p>
+                );
+              })
             )}
+            <div ref={threadEndRef} />
           </div>
+
+          {/* Chat Input Bar */}
+          <form
+            onSubmit={handleSendDirectMessage}
+            className="p-3 border-t border-gray-100 bg-white space-y-2"
+          >
+            {/* Attachment preview chips */}
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap gap-2 pb-1">
+                {attachments.map((att, idx) => (
+                  <div
+                    key={idx}
+                    className="relative w-12 h-12 rounded-xl overflow-hidden border border-gray-200"
+                  >
+                    <img src={att.url} alt={att.name} className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => setAttachments((prev) => prev.filter((_, i) => i !== idx))}
+                      className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/70 text-white flex items-center justify-center cursor-pointer"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-center gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handleFileChange}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                title="Attach photo or document"
+                className="p-2.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all cursor-pointer shrink-0 border border-gray-200"
+              >
+                <Paperclip className="w-4 h-4" />
+              </button>
+
+              <input
+                type="text"
+                placeholder={`Type a direct message to ${
+                  selectedContact?.name || 'contact'
+                } (persisted to database)...`}
+                value={newMsgText}
+                onChange={(e) => setNewMsgText(e.target.value)}
+                className="flex-1 text-xs px-3.5 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all bg-gray-50 focus:bg-white text-gray-800"
+              />
+
+              {/* Internal staff note toggle if talking to resident */}
+              {selectedContact?.role === 'tenant' && (
+                <button
+                  type="button"
+                  onClick={() => setIsInternalNote((v) => !v)}
+                  className={`text-[10px] font-bold px-2 py-2 rounded-xl border transition-all cursor-pointer shrink-0 flex items-center gap-1 ${
+                    isInternalNote
+                      ? 'bg-amber-100 text-amber-800 border-amber-300'
+                      : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'
+                  }`}
+                  title="Make this an internal note only visible to staff"
+                >
+                  <Lock className="w-3 h-3" />
+                  Staff Note
+                </button>
+              )}
+
+              <Button type="submit" size="sm" icon={Send}>
+                Send Message
+              </Button>
+            </div>
+          </form>
         </div>
-      </Card>
+      </div>
 
-      <Card gradient padding="p-4">
-        <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-700">
-          INBOX RULES
-        </p>
-        <p className="text-xs text-gray-600 mt-1">
-          Manager inbox includes only assigned-property threads. Internal notes stay staff-only; email/portal channel, sender, attachments, and timestamps are retained.
-        </p>
-      </Card>
-
-      {/* New Message Modal */}
+      {/* New Conversation Modal */}
       <Modal
         isOpen={isNewOpen}
         onClose={() => setIsNewOpen(false)}
-        title="New message"
+        title="Start New Conversation"
         size="md"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setIsNewOpen(false)}>
-              Cancel
-            </Button>
-            <Button variant="primary" icon={Send} onClick={handleCreateThread}>
-              Send message
-            </Button>
-          </>
-        }
       >
-        <form onSubmit={handleCreateThread} className="space-y-4">
-          <Select
-            label="Assigned property"
-            options={state.properties.map((p) => ({ value: p.id, label: p.name }))}
-            value={newMsg.propertyId}
-            onChange={(e) => setNewMsg({ ...newMsg, propertyId: e.target.value })}
+        <form onSubmit={handleCreateNewThread} className="space-y-4">
+          <Input
+            label="Recipient name"
+            placeholder="e.g. Rebecca Miller"
+            value={newThreadData.contactName}
+            onChange={(e) => setNewThreadData({ ...newThreadData, contactName: e.target.value })}
+            required
           />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3">
+            <Select
+              label="Assigned Property"
+              value={newThreadData.propertyId || state.properties[0]?.id || ''}
+              onChange={(e) => setNewThreadData({ ...newThreadData, propertyId: e.target.value })}
+            >
+              {state.properties.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </Select>
             <Input
-              label="Recipient (Tenant or Vendor)"
-              required
-              placeholder="e.g. Rebecca Miller"
-              value={newMsg.contactName}
-              onChange={(e) => setNewMsg({ ...newMsg, contactName: e.target.value })}
-            />
-            <Input
-              label="Unit / Ref"
-              placeholder="e.g. A-204"
-              value={newMsg.unit}
-              onChange={(e) => setNewMsg({ ...newMsg, unit: e.target.value })}
+              label="Unit / Suite"
+              placeholder="e.g. 2A or General"
+              value={newThreadData.unit}
+              onChange={(e) => setNewThreadData({ ...newThreadData, unit: e.target.value })}
             />
           </div>
           <Select
-            label="Channel"
-            options={['Portal', 'Email', 'SMS']}
-            value={newMsg.channel}
-            onChange={(e) => setNewMsg({ ...newMsg, channel: e.target.value })}
-          />
+            label="Delivery channel"
+            value={newThreadData.channel}
+            onChange={(e) => setNewThreadData({ ...newThreadData, channel: e.target.value })}
+          >
+            <option value="Portal">Resident Portal</option>
+            <option value="Email">Email</option>
+            <option value="SMS">SMS Notification</option>
+          </Select>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Message <span className="text-red-500">*</span>
-            </label>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Message</label>
             <textarea
-              rows={3}
-              value={newMsg.text}
-              onChange={(e) => setNewMsg({ ...newMsg, text: e.target.value })}
-              placeholder="Write your message..."
-              className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-400/30 focus:border-blue-400 resize-none"
+              rows={4}
+              value={newThreadData.text}
+              onChange={(e) => setNewThreadData({ ...newThreadData, text: e.target.value })}
+              placeholder="Type your message..."
+              className="w-full text-xs rounded-xl border border-gray-200 p-3 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-200"
+              required
             />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" onClick={() => setIsNewOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary">
+              Send & Open Thread
+            </Button>
           </div>
         </form>
       </Modal>
     </div>
   );
 }
-

@@ -36,19 +36,18 @@ export default function Select({
       } else if (containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
         let spaceBelow = window.innerHeight - rect.bottom;
+        let spaceAbove = rect.top;
 
         // Check if inside a modal or scroll container
         const scrollParent = containerRef.current.closest('.overflow-y-auto, [data-modal-body], .modal-body, .overflow-auto');
         if (scrollParent) {
           const parentRect = scrollParent.getBoundingClientRect();
-          const parentSpaceBelow = parentRect.bottom - rect.bottom;
-          if (parentSpaceBelow < 250) {
-            spaceBelow = parentSpaceBelow;
-          }
+          spaceBelow = parentRect.bottom - rect.bottom;
+          spaceAbove = rect.top - parentRect.top;
         }
 
-        // If not enough space below (< 220px) and plenty of space above, open upwards
-        if (spaceBelow < 220 && rect.top > 180) {
+        // Only open upwards if space below is tight AND there is genuinely sufficient space above (> 160px and > spaceBelow)
+        if (spaceBelow < 200 && spaceAbove > 160 && spaceAbove > spaceBelow) {
           setOpenUp(true);
         } else {
           setOpenUp(false);

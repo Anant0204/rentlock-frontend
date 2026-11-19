@@ -18,14 +18,28 @@ import {
   readFilesAsDataUrls,
 } from '../../data/tenantPortalData';
 
+function parseTimeMinutes(timeStr) {
+  if (!timeStr) return 0;
+  const match = String(timeStr).match(/(\d+):(\d+)\s*(AM|PM)?/i);
+  if (!match) return 0;
+  let hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  const ampm = (match[3] || '').toUpperCase();
+  if (ampm === 'PM' && hours < 12) hours += 12;
+  if (ampm === 'AM' && hours === 12) hours = 0;
+  return hours * 60 + minutes;
+}
+
 export default function TenantMessages() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const initialThreadParam = searchParams.get('thread');
   const { user } = useAuth();
 
   const [portalState, setPortalState] = useState(() => getTenantPortalState());
   const [activeFilter, setActiveFilter] = useState('inbox');
-  const [selectedThreadId, setSelectedThreadId] = useState(null);
+  const [selectedThreadId, setSelectedThreadId] = useState(
+    () => initialThreadParam || localStorage.getItem('tenant_selected_thread') || null
+  );
   const [draft, setDraft] = useState('');
   const [attachments, setAttachments] = useState([]);
 
@@ -186,14 +200,21 @@ export default function TenantMessages() {
         if (existingIdx >= 0) {
           merged[existingIdx] = bt;
         } else {
-          merged.unshift(bt);
+          merged.push(bt);
         }
       }
 
       // Add admin direct thread ONLY if messages exist for this tenant
       if (adminUnifiedThread) {
-        merged.unshift(adminUnifiedThread);
+        merged.push(adminUnifiedThread);
       }
+
+      // Sort threads so that latest active conversations appear at the top
+      merged.sort((a, b) => {
+        const tA = parseTimeMinutes(a.lastTime);
+        const tB = parseTimeMinutes(b.lastTime);
+        return tB - tA;
+      });
 
       return {
         ...prev,
@@ -218,9 +239,39 @@ export default function TenantMessages() {
     };
   }, [syncAllMessages]);
 
-  // Show all tenant threads (Admin chats, work orders, direct messages)
+  // Show all tenant threads consolidated per contact (Sarah Jenkins = 1 unified thread)
   const householdThreads = useMemo(() => {
-    return portalState.threads || [];
+    const rawThreads = portalState.threads || [];
+    const threadMap = new Map();
+
+    rawThreads.forEach((th) => {
+      const key = (th.contactName || '').trim().toLowerCase() || th.id;
+      if (!threadMap.has(key)) {
+        threadMap.set(key, {
+          ...th,
+          messages: Array.isArray(th.messages) ? [...th.messages] : [],
+        });
+      } else {
+        const existing = threadMap.get(key);
+        const existingIds = new Set(existing.messages.map((m) => m.id));
+        const newMsgs = (th.messages || []).filter((m) => !existingIds.has(m.id));
+        existing.messages = [...existing.messages, ...newMsgs];
+        existing.unreadCount = (existing.unreadCount || 0) + (th.unreadCount || 0);
+
+        if (parseTimeMinutes(th.lastTime) >= parseTimeMinutes(existing.lastTime)) {
+          existing.subject = th.subject || existing.subject;
+          existing.lastTime = th.lastTime || existing.lastTime;
+          existing.headerTag = th.headerTag || existing.headerTag;
+        }
+      }
+    });
+
+    const list = Array.from(threadMap.values());
+    list.forEach((th) => {
+      th.messages.sort((m1, m2) => parseTimeMinutes(m1.time) - parseTimeMinutes(m2.time));
+    });
+
+    return list;
   }, [portalState.threads]);
 
   const unreadCount = useMemo(() => getUnreadMessageCount(portalState), [portalState]);
@@ -237,8 +288,10 @@ export default function TenantMessages() {
 
   const activeThread = useMemo(() => {
     const preferredId = selectedThreadId || initialThreadParam;
+    const prefStr = preferredId ? String(preferredId).trim() : '';
     return (
-      visibleThreads.find((t) => t.id === preferredId) ||
+      visibleThreads.find((t) => String(t.id).trim() === prefStr) ||
+      visibleThreads.find((t) => t.workOrderId && String(t.workOrderId).trim() === prefStr) ||
       visibleThreads[0] ||
       householdThreads[0] ||
       null
@@ -246,21 +299,40 @@ export default function TenantMessages() {
   }, [visibleThreads, selectedThreadId, initialThreadParam, householdThreads]);
 
   useEffect(() => {
+    if (activeThread?.id && !selectedThreadId) {
+      setSelectedThreadId(activeThread.id);
+      localStorage.setItem('tenant_selected_thread', activeThread.id);
+    }
+  }, [activeThread?.id, selectedThreadId]);
+
+  useEffect(() => {
     threadEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [activeThread?.messages?.length]);
 
   const handleSelectThread = (threadId) => {
     setSelectedThreadId(threadId);
-    const updated = markThreadRead(threadId);
-    setPortalState(updated);
+    setSearchParams({ thread: threadId }, { replace: true });
+    localStorage.setItem('tenant_selected_thread', threadId);
+    markThreadRead(threadId);
+    setPortalState((prev) => ({
+      ...prev,
+      threads: (prev.threads || []).map((t) =>
+        t.id === threadId ? { ...t, unreadCount: 0 } : t
+      ),
+    }));
     if (!isNaN(parseInt(threadId, 10))) {
       apiClient.patch(`/messages/threads/${threadId}/read`).catch(() => {});
     }
   };
 
   const handleMarkRead = (threadId) => {
-    const updated = markThreadRead(threadId);
-    setPortalState(updated);
+    markThreadRead(threadId);
+    setPortalState((prev) => ({
+      ...prev,
+      threads: (prev.threads || []).map((t) =>
+        t.id === threadId ? { ...t, unreadCount: 0 } : t
+      ),
+    }));
     if (!isNaN(parseInt(threadId, 10))) {
       apiClient.patch(`/messages/threads/${threadId}/read`).catch(() => {});
     }
@@ -420,7 +492,7 @@ export default function TenantMessages() {
               </div>
             ) : (
               visibleThreads.map((thread) => {
-                const isSelected = activeThread?.id === thread.id;
+                const isSelected = String(activeThread?.id) === String(thread.id);
                 return (
                   <button
                     key={thread.id}
