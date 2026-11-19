@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import {
   KeyRound, Plus, Search, ShieldCheck, User, Building2,
   Clock, Phone, Mail, CheckCircle2, Lock, Trash2, LayoutGrid,
-  List, AlertTriangle, Shield, Edit2
+  List, AlertTriangle, Shield, Edit2, Sparkles, Briefcase, Layers
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import PageHeader from '../../components/shared/PageHeader';
@@ -14,11 +14,33 @@ import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
 import apiClient from '../../services/apiClient';
-import { getStaff, addStaff, updateStaff, saveStaff, deleteStaff } from '../../data/mockOperations';
+import {
+  getStaff,
+  addStaff,
+  updateStaff,
+  saveStaff,
+  deleteStaff,
+  getDepartments,
+  saveDepartments,
+  addDepartment,
+  deleteDepartment,
+} from '../../data/mockOperations';
 import { getProperties } from '../../data/mockProperties';
+
+const DEPARTMENT_ICONS = {
+  'Facilities & Repairs': { icon: Building2, color: 'text-blue-600 bg-blue-50 border-blue-200' },
+  'Resident Services': { icon: User, color: 'text-indigo-600 bg-indigo-50 border-indigo-200' },
+  'Building Safety': { icon: ShieldCheck, color: 'text-rose-600 bg-rose-50 border-rose-200' },
+  'Operations & Cleaning': { icon: Sparkles, color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
+  'Management & Admin': { icon: Briefcase, color: 'text-purple-600 bg-purple-50 border-purple-200' },
+};
 
 export default function StaffList() {
   const [staff, setStaff] = useState(() => getStaff());
+  const [departments, setDepartments] = useState(() => getDepartments());
+  const [isDeptModalOpen, setIsDeptModalOpen] = useState(false);
+  const [newDeptInput, setNewDeptInput] = useState('');
+  const [isSubmittingDept, setIsSubmittingDept] = useState(false);
   const [properties, setProperties] = useState(() => {
     return getProperties().filter((p) => !p.archived);
   });
@@ -84,6 +106,19 @@ export default function StaffList() {
         const combined = Array.from(mergedMap.values());
         setStaff(combined);
         saveStaff(combined);
+      }
+    }).catch(() => {});
+
+    // 3. Fetch departments from backend
+    apiClient.get('/operations/departments').then((res) => {
+      const items = res?.items || res?.data || res;
+      if (Array.isArray(items) && items.length > 0) {
+        const depNames = items.map((d) => (typeof d === 'string' ? d : d.name)).filter(Boolean);
+        setDepartments((prev) => {
+          const merged = Array.from(new Set([...prev, ...depNames]));
+          saveDepartments(merged);
+          return merged;
+        });
       }
     }).catch(() => {});
   }, []);
@@ -353,6 +388,57 @@ export default function StaffList() {
     }
   };
 
+  const handleAddDepartment = async (e) => {
+    if (e) e.preventDefault();
+    const trimmed = newDeptInput.trim();
+    if (!trimmed) {
+      toast.error('Please enter a department name.');
+      return;
+    }
+    if (departments.some((d) => d.toLowerCase() === trimmed.toLowerCase())) {
+      toast.error(`Department "${trimmed}" already exists.`);
+      return;
+    }
+    setIsSubmittingDept(true);
+    try {
+      const updated = await addDepartment(trimmed);
+      setDepartments(updated);
+      setNewDeptInput('');
+      toast.success(`Department "${trimmed}" added.`);
+    } catch {
+      toast.error('Failed to add department.');
+    } finally {
+      setIsSubmittingDept(false);
+    }
+  };
+
+  const handleDeleteDepartment = async (dep) => {
+    const linkedStaff = staff.filter((s) => (s.department || '').toLowerCase() === dep.toLowerCase());
+    if (linkedStaff.length > 0) {
+      const fallbackDep = departments.find((d) => d.toLowerCase() !== dep.toLowerCase()) || 'General Portfolio';
+      const confirmProceed = window.confirm(
+        `There ${linkedStaff.length === 1 ? 'is' : 'are'} ${linkedStaff.length} staff member(s) currently in "${dep}". Deleting this department will reassign them to "${fallbackDep}". Proceed?`
+      );
+      if (!confirmProceed) return;
+
+      const updatedStaff = staff.map((s) =>
+        (s.department || '').toLowerCase() === dep.toLowerCase()
+          ? { ...s, department: fallbackDep }
+          : s
+      );
+      setStaff(updatedStaff);
+      saveStaff(updatedStaff);
+    }
+
+    try {
+      const updated = await deleteDepartment(dep);
+      setDepartments(updated);
+      toast.success(`Department "${dep}" removed.`);
+    } catch {
+      toast.error('Failed to remove department.');
+    }
+  };
+
   return (
     <div className="space-y-6 pb-12">
       <PageHeader
@@ -360,9 +446,19 @@ export default function StaffList() {
         subtitle="Manage building personnel, shift attendance, electronic key fobs, and security clearance."
         breadcrumbs={[{ label: 'Dashboard', path: '/dashboard' }, { label: 'Staff & Access' }]}
         actions={
-          <Button icon={Plus} size="sm" onClick={handleOpenAdd}>
-            Add Staff Member
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              icon={Building2}
+              size="sm"
+              onClick={() => setIsDeptModalOpen(true)}
+            >
+              Departments
+            </Button>
+            <Button icon={Plus} size="sm" onClick={handleOpenAdd}>
+              Add Staff Member
+            </Button>
+          </div>
         }
       />
 
@@ -812,7 +908,7 @@ export default function StaffList() {
               label="Department"
               placeholder="Select Department..."
               value={form.department}
-              options={['Facilities & Repairs', 'Resident Services', 'Building Safety', 'Operations & Cleaning', 'Management & Admin']}
+              options={departments}
               onChange={(e) => setForm({ ...form, department: e.target.value })}
             />
           </div>
@@ -928,7 +1024,7 @@ export default function StaffList() {
               label="Department"
               placeholder="Select Department..."
               value={editForm.department}
-              options={['Facilities & Repairs', 'Resident Services', 'Building Safety', 'Operations & Cleaning', 'Management & Admin']}
+              options={departments}
               onChange={(e) => setEditForm({ ...editForm, department: e.target.value })}
             />
           </div>
@@ -1092,6 +1188,106 @@ export default function StaffList() {
               <p className="text-[11px] text-rose-700 mt-0.5">
                 This will unpair key fob <strong>{staffToDelete?.keyFobId}</strong> and revoke facility door clearance.
               </p>
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ────────────────────────────────────────────── */}
+      {/* MANAGE DEPARTMENTS MODAL                       */}
+      {/* ────────────────────────────────────────────── */}
+      <Modal
+        isOpen={isDeptModalOpen}
+        onClose={() => setIsDeptModalOpen(false)}
+        title="Manage Staff Departments"
+        size="md"
+        footer={
+          <div className="flex justify-end">
+            <Button variant="secondary" onClick={() => setIsDeptModalOpen(false)}>
+              Done
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4 text-xs text-gray-700">
+          {/* Add Department Input */}
+          <div className="p-3.5 bg-gray-50 rounded-xl border border-gray-200 space-y-2.5">
+            <p className="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-1.5">
+              <Building2 className="w-3.5 h-3.5 text-indigo-600" /> Add New Department
+            </p>
+            <form onSubmit={handleAddDepartment} className="flex gap-2">
+              <Input
+                placeholder="e.g. Concierge, Security, Groundskeeping..."
+                value={newDeptInput}
+                onChange={(e) => setNewDeptInput(e.target.value)}
+                className="flex-1"
+              />
+              <Button
+                type="submit"
+                icon={Plus}
+                loading={isSubmittingDept}
+                className="shrink-0"
+              >
+                Add
+              </Button>
+            </form>
+            <p className="text-[11px] text-gray-500">
+              New departments will immediately appear in the Add & Edit Staff Member forms.
+            </p>
+          </div>
+
+          {/* List of Departments */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-[11px] font-bold text-gray-500 px-1 uppercase tracking-wider">
+              <span>Configured Departments ({departments.length})</span>
+              <span>Assigned Personnel</span>
+            </div>
+
+            <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
+              {departments.length === 0 ? (
+                <div className="p-4 text-center text-gray-400 bg-gray-50 rounded-xl border border-gray-100">
+                  No departments found. Add one above.
+                </div>
+              ) : (
+                departments.map((dept) => {
+                  const linkedCount = staff.filter(
+                    (s) => (s.department || '').toLowerCase() === dept.toLowerCase()
+                  ).length;
+                  const deptStyle = DEPARTMENT_ICONS[dept] || {
+                    icon: Building2,
+                    color: 'text-indigo-600 bg-indigo-50 border-indigo-200',
+                  };
+                  const IconComp = deptStyle.icon || Building2;
+
+                  return (
+                    <div
+                      key={dept}
+                      className="flex items-center justify-between p-2.5 rounded-xl bg-white border border-gray-200 hover:border-gray-300 transition-all shadow-2xs"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className={`p-1.5 rounded-lg border ${deptStyle.color}`}>
+                          <IconComp className="w-3.5 h-3.5" />
+                        </div>
+                        <span className="text-xs font-semibold text-gray-800">{dept}</span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                          {linkedCount} {linkedCount === 1 ? 'member' : 'members'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteDepartment(dept)}
+                          title={`Delete "${dept}" department`}
+                          className="text-gray-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         </div>

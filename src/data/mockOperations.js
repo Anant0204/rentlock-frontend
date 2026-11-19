@@ -285,6 +285,64 @@ export const checkoutVisitor = (visitorId) => {
 };
 
 // ──────────────────────────────────────────────
+// STAFF DEPARTMENTS
+// ──────────────────────────────────────────────
+export const DEFAULT_DEPARTMENTS = [
+  'Facilities & Repairs',
+  'Resident Services',
+  'Building Safety',
+  'Operations & Cleaning',
+  'Management & Admin',
+];
+
+export const getDepartments = () => {
+  try {
+    const raw = localStorage.getItem('pm_staff_departments');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch (err) {
+    console.warn('Could not read departments cache', err);
+  }
+  return DEFAULT_DEPARTMENTS;
+};
+
+export const saveDepartments = (departments) => {
+  localStorage.setItem('pm_staff_departments', JSON.stringify(departments));
+};
+
+export const addDepartment = async (name) => {
+  const trimmed = (name || '').trim();
+  if (!trimmed) return getDepartments();
+  try {
+    await apiClient.post('/operations/departments', { name: trimmed });
+  } catch (err) {
+    console.warn('[API] Create department notice:', err.message);
+  }
+  const current = getDepartments();
+  if (!current.some((d) => d.toLowerCase() === trimmed.toLowerCase())) {
+    const updated = [...current, trimmed];
+    saveDepartments(updated);
+    return updated;
+  }
+  return current;
+};
+
+export const deleteDepartment = async (name) => {
+  const trimmed = (name || '').trim();
+  try {
+    await apiClient.delete(`/operations/departments/${encodeURIComponent(trimmed)}`);
+  } catch (err) {
+    console.warn('[API] Delete department notice:', err.message);
+  }
+  const current = getDepartments();
+  const updated = current.filter((d) => d.toLowerCase() !== trimmed.toLowerCase());
+  saveDepartments(updated);
+  return updated;
+};
+
+// ──────────────────────────────────────────────
 // STAFF & ACCESS CONTROL
 // ──────────────────────────────────────────────
 const INITIAL_STAFF = [];
