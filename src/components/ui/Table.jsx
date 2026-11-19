@@ -68,7 +68,7 @@ export default function Table({
       {/* Toolbar */}
       {(onSearch || toolbarActions || bulkActions || showDownload || title) && (
         <div className="px-5 py-3.5 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2 flex-1 min-w-0">
+          <div className="flex items-center gap-2 shrink-0">
             {title && (
               <div className="shrink-0 flex items-center gap-3 border-r border-gray-100 pr-4 mr-2">
                 <div className="w-8 h-8 rounded-lg bg-indigo-600/10 text-indigo-600 flex items-center justify-center">
@@ -92,7 +92,7 @@ export default function Table({
               </div>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {toolbarActions}
             {showDownload && (
               <button className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 transition-colors text-gray-500 cursor-pointer">

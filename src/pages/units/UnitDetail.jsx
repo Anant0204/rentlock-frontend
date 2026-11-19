@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import apiClient from '../../services/apiClient';
-import { ArrowLeft, Edit, DoorOpen, Archive, Trash2, Save, AlertTriangle, Plus, CreditCard } from 'lucide-react';
+import { ArrowLeft, Edit, DoorOpen, Archive, Trash2, Save, AlertTriangle, Plus, CreditCard, Bed, Bath, ChevronDown, Info } from 'lucide-react';
 import PageHeader from '../../components/shared/PageHeader';
 import Card, { CardHeader } from '../../components/ui/Card';
 import Tabs from '../../components/ui/Tabs';
@@ -12,17 +12,20 @@ import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
 import StatCard from '../../components/shared/StatCard';
 import { getUnits, archiveUnit, deleteUnit, updateUnit } from '../../data/mockUnits';
+import { getProperties } from '../../data/mockProperties';
 import { getLeases } from '../../data/mockLeases';
 import { getInvoices } from '../../data/mockInvoices';
 import { mockComplaints } from '../../data/mockExtra';
 import { getAdminPortalState } from '../../data/adminPortalStore';
-import { UNIT_TYPES } from '../../utils/constants';
+import { getUnitTypes, fetchUnitTypesFromBackend } from '../../utils/unitTypeStore';
 import { formatCurrency, formatDate, getStatusColor } from '../../utils/formatters';
 import toast from 'react-hot-toast';
 
 export default function UnitDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const rawProps = getProperties().filter((p) => !p.archived);
+  const properties = rawProps.length > 0 ? rawProps : [{ id: 1, name: 'Sunrise Residency' }];
   const [unit, setUnit] = useState(() => getUnits().find((u) => String(u.id) === String(id)));
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRemoveModalOpen, setIsRemoveModalOpen] = useState(false);
@@ -31,6 +34,89 @@ export default function UnitDetail() {
   const [editForm, setEditForm] = useState(unit || {});
   const [chargeForm, setChargeForm] = useState({ label: 'Late Fee / Utility Charge', amount: '' });
   const [customCharges, setCustomCharges] = useState([]);
+  const [unitTypes, setUnitTypes] = useState(() => getUnitTypes());
+
+  useEffect(() => {
+    fetchUnitTypesFromBackend().then((types) => {
+      if (Array.isArray(types) && types.length > 0) {
+        setUnitTypes(types);
+      }
+    });
+  }, []);
+
+  const updateEdit = (key, value) => {
+    setEditForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const addEditRecurringCharge = () => {
+    const charges = editForm.recurringCharges || [];
+    setEditForm((prev) => ({
+      ...prev,
+      recurringCharges: [...charges, { id: Date.now(), label: '', amount: '' }],
+    }));
+  };
+
+  const removeEditRecurringCharge = (cId) => {
+    setEditForm((prev) => ({
+      ...prev,
+      recurringCharges: (prev.recurringCharges || []).filter((c) => c.id !== cId),
+    }));
+  };
+
+  const updateEditRecurringCharge = (cId, field, val) => {
+    setEditForm((prev) => ({
+      ...prev,
+      recurringCharges: (prev.recurringCharges || []).map((c) => (c.id === cId ? { ...c, [field]: val } : c)),
+    }));
+  };
+
+  const addEditMeter = () => {
+    const meters = editForm.meters || [];
+    setEditForm((prev) => ({
+      ...prev,
+      meters: [...meters, { id: Date.now(), type: 'Electric', number: '' }],
+    }));
+  };
+
+  const removeEditMeter = (mId) => {
+    setEditForm((prev) => ({
+      ...prev,
+      meters: (prev.meters || []).filter((m) => m.id !== mId),
+    }));
+  };
+
+  const updateEditMeter = (mId, field, val) => {
+    setEditForm((prev) => ({
+      ...prev,
+      meters: (prev.meters || []).map((m) => (m.id === mId ? { ...m, [field]: val } : m)),
+    }));
+  };
+
+  const openEditModal = () => {
+    fetchUnitTypesFromBackend().then((types) => {
+      if (Array.isArray(types) && types.length > 0) setUnitTypes(types);
+    });
+    setEditForm({
+      ...unit,
+      propertyId: unit.propertyId || properties[0]?.id || 1,
+      propertyName: unit.propertyName || properties[0]?.name || 'Sunrise Residency',
+      building: unit.building || unit.block || 'Main Building',
+      unitNumber: unit.unitNumber || '',
+      floor: unit.floor || 1,
+      beds: unit.beds ?? unit.bedrooms ?? 1,
+      baths: unit.baths ?? (unit.bathrooms !== undefined ? Number(unit.bathrooms) : 1),
+      unitType: unit.bhk || `${unit.beds ?? unit.bedrooms ?? 1} BD / ${unit.baths ?? unit.bathrooms ?? 1} BA`,
+      bhk: unit.bhk || `${unit.beds ?? unit.bedrooms ?? 1} BD / ${unit.baths ?? unit.bathrooms ?? 1} BA`,
+      size: unit.size || unit.sqft || 900,
+      rent: unit.rent || unit.rentAmount || 2150,
+      parkingSlot: unit.parkingSlot || '',
+      furnished: unit.furnished || 'Unfurnished',
+      status: unit.status || 'Vacant',
+      recurringCharges: unit.recurringCharges?.length > 0 ? unit.recurringCharges : [{ id: 1, label: 'Pet Rent', amount: '' }],
+      meters: unit.meters?.length > 0 ? unit.meters : [{ id: 1, type: 'Electric', number: unit.meterNumber && unit.meterNumber !== '—' ? unit.meterNumber : '' }],
+    });
+    setIsEditModalOpen(true);
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -44,6 +130,9 @@ export default function UnitDetail() {
             size: data.size || data.sqft || unit?.size,
             rent: Number(data.rent ?? data.rentAmount ?? unit?.rent ?? 0),
             deposit: Number(data.deposit ?? data.depositAmount ?? unit?.deposit ?? 0),
+            beds: data.beds ?? data.bedrooms ?? unit?.beds ?? unit?.bedrooms ?? 1,
+            baths: data.baths ?? (data.bathrooms !== undefined ? Number(data.bathrooms) : (unit?.baths ?? unit?.bathrooms ?? 1)),
+            bhk: data.bhk || unit?.bhk || `${data.bedrooms ?? unit?.bedrooms ?? 1} BD / ${data.bathrooms ?? unit?.bathrooms ?? 1} BA`,
           };
           setUnit(enriched);
           setEditForm(enriched);
@@ -126,11 +215,49 @@ export default function UnitDetail() {
     }
   };
 
-  const handleUpdate = () => {
-    updateUnit(unit.id, editForm);
-    setUnit({ ...unit, ...editForm });
-    setIsEditModalOpen(false);
-    toast.success('Unit specifications updated');
+  const handleUpdate = async () => {
+    try {
+      const beds = Number(editForm.beds ?? editForm.bedrooms ?? 1);
+      const baths = Number(editForm.baths ?? editForm.bathrooms ?? 1);
+      const rent = Number(editForm.rent || editForm.rentAmount || 2150);
+      const size = Number(editForm.size || editForm.sqft || 900);
+      const floor = Number(editForm.floor || 1);
+      const prop = properties.find((p) => String(p.id) === String(editForm.propertyId));
+
+      const payload = {
+        ...editForm,
+        propertyId: Number(editForm.propertyId) || unit.propertyId,
+        propertyName: prop?.name || editForm.propertyName || unit.propertyName,
+        building: editForm.building || 'Main Building',
+        block: editForm.building || 'Main Building',
+        unitNumber: editForm.unitNumber,
+        floor,
+        bedrooms: beds,
+        bathrooms: baths,
+        beds,
+        baths,
+        sqft: size,
+        size,
+        rentAmount: rent,
+        rent,
+        depositAmount: rent,
+        bhk: editForm.unitType || `${beds} BD / ${baths} BA`,
+        unitType: editForm.unitType || `${beds} BD / ${baths} BA`,
+        parkingSlot: editForm.parkingSlot || null,
+        furnished: editForm.furnished || 'Unfurnished',
+        status: editForm.status || 'Vacant',
+        meterNumber: editForm.meters?.[0]?.number || '—',
+        meters: editForm.meters?.filter((m) => m.number) || [],
+        recurringCharges: editForm.recurringCharges?.filter((c) => c.label && c.amount).map((c) => ({ ...c, amount: Number(c.amount) })) || [],
+      };
+
+      await updateUnit(unit.id, payload);
+      setUnit({ ...unit, ...payload });
+      setIsEditModalOpen(false);
+      toast.success('Unit specifications updated');
+    } catch (err) {
+      toast.error(err.message || 'Failed to update unit');
+    }
   };
 
   const handleAddCharge = () => {
@@ -141,13 +268,20 @@ export default function UnitDetail() {
     toast.success('Charge posted to unit ledger');
   };
 
+  const unitLayout = unit.bhk || (unit.bedrooms !== undefined || unit.beds !== undefined
+    ? `${unit.bedrooms ?? unit.beds} BD / ${unit.bathrooms ?? unit.baths} BA`
+    : '—');
+  const unitBeds = unit.bedrooms ?? unit.beds ?? 1;
+  const unitBaths = unit.bathrooms ?? unit.baths ?? 1;
+
   const infoItems = [
     ['Property', unit.propertyName],
-    ['Building / Block', unit.building || unit.block],
+    ['Building / Block', unit.building || unit.block || '—'],
     ['Floor', unit.floor],
     ['Size', `${unit.size} sq ft`],
-    ['Unit Type', unit.bhk],
-    ['Furnished', unit.furnished],
+    ['Unit Type', unitLayout],
+    ['Beds / Baths', `${unitBeds} Bed / ${unitBaths} Bath`],
+    ['Furnished', unit.furnished || 'Unfurnished'],
     ['Market Rent', `${formatCurrency(unit.rent)}/mo`],
     ['Utility Meter', unit.meterNumber || '—'],
     ['Parking Space', unit.parkingSlot || '—'],
@@ -341,7 +475,7 @@ export default function UnitDetail() {
         actions={
           <div className="flex gap-2">
             <Button variant="secondary" icon={ArrowLeft} onClick={() => navigate('/units')} className="py-2 text-xs font-bold">Back</Button>
-            <Button variant="secondary" icon={Edit} onClick={() => setIsEditModalOpen(true)} className="py-2 text-xs font-bold">Edit</Button>
+            <Button variant="secondary" icon={Edit} onClick={openEditModal} className="py-2 text-xs font-bold">Edit</Button>
             <Button variant="danger" icon={Trash2} size="sm" onClick={() => setIsRemoveModalOpen(true)} className="py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white">
               {hasLinkedRecords ? 'Remove / Archive' : 'Delete Unit'}
             </Button>
@@ -439,25 +573,373 @@ export default function UnitDetail() {
         </div>
       </Modal>
 
+      {/* Edit Unit Modal - Exact match to Add Unit layout */}
       <Modal
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
-        title="Update Unit Specs"
-        size="lg"
-        footer={<Button onClick={handleUpdate} icon={Save} className="font-black bg-[#4338ca] px-8">Save Changes</Button>}
-      >
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-1">
-          <Input label="Unit #" value={editForm.unitNumber || ''} onChange={(e) => setEditForm({ ...editForm, unitNumber: e.target.value })} />
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="Building / Block" value={editForm.building || editForm.block || ''} onChange={(e) => setEditForm({ ...editForm, building: e.target.value, block: e.target.value })} />
-            <Input label="Floor" type="number" value={editForm.floor || 1} onChange={(e) => setEditForm({ ...editForm, floor: Number(e.target.value) })} />
+        title="Edit Unit"
+        size="xl"
+        footer={
+          <div className="flex items-center justify-end gap-3 w-full">
+            <Button variant="secondary" onClick={() => setIsEditModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleUpdate} icon={Save} className="bg-indigo-600 hover:bg-indigo-700 font-bold px-6">
+              Save Changes
+            </Button>
           </div>
-          <Select label="Unit Type" value={editForm.bhk || '2 BD / 2 BA'} options={UNIT_TYPES} onChange={(e) => setEditForm({ ...editForm, bhk: e.target.value })} />
-          <Select label="Status" value={editForm.status || 'Vacant'} options={['Vacant', 'Occupied', 'Reserved', 'Turnover', 'Under Repair']} onChange={(e) => setEditForm({ ...editForm, status: e.target.value })} />
-          <Input label="Market Rent ($)" type="number" value={editForm.rent || 0} onChange={(e) => setEditForm({ ...editForm, rent: Number(e.target.value) })} />
-          <Input label="Unit Area (sq ft)" type="number" value={editForm.size || 0} onChange={(e) => setEditForm({ ...editForm, size: Number(e.target.value) })} />
-          <Input label="Utility Meter #" value={editForm.meterNumber || ''} onChange={(e) => setEditForm({ ...editForm, meterNumber: e.target.value })} />
-          <Input label="Parking Space" value={editForm.parkingSlot || ''} onChange={(e) => setEditForm({ ...editForm, parkingSlot: e.target.value })} />
+        }
+      >
+        <div className="space-y-6 max-h-[75vh] overflow-y-auto pr-1">
+          {/* SECTION 1: UNIT DETAILS */}
+          <div className="rounded-2xl border border-gray-200/80 bg-white p-5 shadow-sm">
+            <h3 className="text-sm font-bold text-gray-900 mb-4">Unit Details</h3>
+            
+            <div className="space-y-4">
+              {/* Row 1: Property *, Building / Block, Unit # * */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-800 mb-1.5">
+                    Property <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={editForm.propertyId}
+                      onChange={(e) => updateEdit('propertyId', e.target.value)}
+                      className="w-full appearance-none rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 pr-9 text-sm text-gray-800 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20 cursor-pointer"
+                    >
+                      {properties.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name.toLowerCase()}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-800 mb-1.5">
+                    Building / Block
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Main Building"
+                    value={editForm.building || ''}
+                    onChange={(e) => updateEdit('building', e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-800 mb-1.5">
+                    Unit # <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g., A-101"
+                    value={editForm.unitNumber || ''}
+                    onChange={(e) => updateEdit('unitNumber', e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
+                  />
+                </div>
+              </div>
+
+              {/* Row 2: Floor, Beds / Baths, Unit Type, Size (sq ft) */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-800 mb-1.5">
+                    Floor
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    placeholder="1"
+                    value={editForm.floor || 1}
+                    onChange={(e) => updateEdit('floor', e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
+                  />
+                </div>
+
+                {/* Combined Beds / Baths */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-800 mb-1.5">
+                    Beds / Baths
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="relative flex items-center">
+                      <Bed className="w-4 h-4 text-gray-500 absolute left-3 pointer-events-none" />
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        placeholder="2 Bed"
+                        value={editForm.beds ?? 1}
+                        onChange={(e) => updateEdit('beds', e.target.value ? Math.floor(Math.abs(Number(e.target.value))) : '')}
+                        className="w-full rounded-xl border border-gray-200 bg-white pl-9 pr-2 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
+                        title="Number of Bedrooms"
+                      />
+                    </div>
+
+                    <div className="relative flex items-center">
+                      <Bath className="w-4 h-4 text-gray-500 absolute left-3 pointer-events-none" />
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        placeholder="2 Bath"
+                        value={editForm.baths !== undefined ? Math.floor(Number(editForm.baths)) : 1}
+                        onChange={(e) => updateEdit('baths', e.target.value ? Math.floor(Math.abs(Number(e.target.value))) : '')}
+                        className="w-full rounded-xl border border-gray-200 bg-white pl-9 pr-2 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
+                        title="Number of Bathrooms"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Unit Type Selection */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-800 mb-1.5">
+                    Unit Type
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={editForm.unitType || (unitTypes.includes(editForm.bhk) ? editForm.bhk : unitTypes[0] || '')}
+                      onChange={(e) => updateEdit('unitType', e.target.value)}
+                      className="w-full appearance-none rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 pr-9 text-sm text-gray-800 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20 cursor-pointer"
+                    >
+                      {unitTypes.length === 0 ? (
+                        <option value="">No unit types defined</option>
+                      ) : (
+                        unitTypes.map((t) => (
+                          <option key={t} value={t}>{t}</option>
+                        ))
+                      )}
+                    </select>
+                    <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-800 mb-1.5">
+                    Size (sq ft)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    placeholder="900"
+                    value={editForm.size || ''}
+                    onChange={(e) => updateEdit('size', e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* SECTION 2: PRICING & RECURRING CHARGES */}
+          <div className="rounded-2xl border border-gray-200/80 bg-white p-5 shadow-sm">
+            <h3 className="text-sm font-bold text-gray-900 mb-4">Pricing &amp; Recurring Charges</h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+              <div>
+                <label className="block text-xs font-semibold text-gray-800 mb-1.5">
+                  Market Rent ($ / month) <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  required
+                  min={0}
+                  placeholder="2150"
+                  value={editForm.rent || ''}
+                  onChange={(e) => updateEdit('rent', e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
+                />
+              </div>
+
+              <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3.5">
+                <div className="flex items-start gap-2.5">
+                  <Info className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" />
+                  <div>
+                    <h4 className="text-xs font-bold text-gray-900">Security Deposit Rule</h4>
+                    <p className="text-[11px] text-gray-500 mt-0.5">
+                      Security deposit amount is entered on the lease (tracked separately in the Trust / Liability Deposit Register).
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Optional recurring charges */}
+            <div className="mt-5 border-t border-gray-100 pt-4">
+              <div className="flex items-center justify-between mb-3">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                  Optional Unit Recurring Charges (Pet Rent, Parking, Storage)
+                </label>
+                <button
+                  type="button"
+                  onClick={addEditRecurringCharge}
+                  className="flex items-center gap-1 text-xs font-bold text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg px-2.5 py-1.5 transition-colors cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Charge</span>
+                </button>
+              </div>
+
+              <div className="space-y-2.5">
+                {editForm.recurringCharges?.map((c) => (
+                  <div key={c.id} className="grid grid-cols-12 gap-3 items-center">
+                    <div className="col-span-6">
+                      <input
+                        type="text"
+                        placeholder="Charge description (e.g., Pet Rent)"
+                        value={c.label}
+                        onChange={(e) => updateEditRecurringCharge(c.id, 'label', e.target.value)}
+                        className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs text-gray-800 placeholder:text-gray-400 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
+                      />
+                    </div>
+                    <div className="col-span-5">
+                      <input
+                        type="number"
+                        placeholder="$/month"
+                        value={c.amount}
+                        onChange={(e) => updateEditRecurringCharge(c.id, 'amount', e.target.value)}
+                        className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs text-gray-800 placeholder:text-gray-400 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
+                      />
+                    </div>
+                    <div className="col-span-1 text-right">
+                      {editForm.recurringCharges.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeEditRecurringCharge(c.id)}
+                          className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded-lg cursor-pointer transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* SECTION 3: ADDITIONAL INFO & UTILITY METERS */}
+          <div className="rounded-2xl border border-gray-200/80 bg-white p-5 shadow-sm">
+            <h3 className="text-sm font-bold text-gray-900 mb-4">Additional Info &amp; Utility Meters</h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-800 mb-1.5">
+                  Assigned Parking Space
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g., P-A01"
+                  value={editForm.parkingSlot || ''}
+                  onChange={(e) => updateEdit('parkingSlot', e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-800 mb-1.5">
+                  Furnished Status
+                </label>
+                <div className="relative">
+                  <select
+                    value={editForm.furnished || 'Unfurnished'}
+                    onChange={(e) => updateEdit('furnished', e.target.value)}
+                    className="w-full appearance-none rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 pr-9 text-sm text-gray-800 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20 cursor-pointer"
+                  >
+                    <option value="Unfurnished">Unfurnished</option>
+                    <option value="Furnished">Furnished</option>
+                    <option value="Semi-Furnished">Semi-Furnished</option>
+                  </select>
+                  <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-800 mb-1.5">
+                  Unit Status
+                </label>
+                <div className="relative">
+                  <select
+                    value={editForm.status || 'Vacant'}
+                    onChange={(e) => updateEdit('status', e.target.value)}
+                    className="w-full appearance-none rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 pr-9 text-sm text-gray-800 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20 cursor-pointer"
+                  >
+                    <option value="Vacant">Vacant</option>
+                    <option value="Reserved">Reserved</option>
+                    <option value="Turnover">Turnover</option>
+                    <option value="Under Repair">Under Repair</option>
+                    <option value="Occupied">Occupied</option>
+                  </select>
+                  <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+              </div>
+            </div>
+
+            {/* Utility Meters */}
+            <div className="mt-5 border-t border-gray-100 pt-4">
+              <div className="flex items-center justify-between mb-3">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                  Utility Meters
+                </label>
+                <button
+                  type="button"
+                  onClick={addEditMeter}
+                  className="flex items-center gap-1 text-xs font-bold text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg px-2.5 py-1.5 transition-colors cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Meter</span>
+                </button>
+              </div>
+
+              <div className="space-y-2.5">
+                {editForm.meters?.map((m) => (
+                  <div key={m.id} className="grid grid-cols-12 gap-3 items-center">
+                    <div className="col-span-5">
+                      <div className="relative">
+                        <select
+                          value={m.type}
+                          onChange={(e) => updateEditMeter(m.id, 'type', e.target.value)}
+                          className="w-full appearance-none rounded-xl border border-gray-200 bg-white px-3.5 py-2 pr-8 text-xs text-gray-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20 cursor-pointer"
+                        >
+                          <option value="Electric">Electric</option>
+                          <option value="Water">Water</option>
+                          <option value="Gas">Gas</option>
+                          <option value="Trash">Trash</option>
+                          <option value="Internet">Internet</option>
+                        </select>
+                        <ChevronDown className="w-3.5 h-3.5 text-gray-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      </div>
+                    </div>
+                    <div className="col-span-6">
+                      <input
+                        type="text"
+                        placeholder="e.g., CONED-88412"
+                        value={m.number}
+                        onChange={(e) => updateEditMeter(m.id, 'number', e.target.value)}
+                        className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-xs text-gray-800 placeholder:text-gray-400 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
+                      />
+                    </div>
+                    <div className="col-span-1 text-right">
+                      {editForm.meters.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeEditMeter(m.id)}
+                          className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded-lg cursor-pointer transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       </Modal>
     </div>
