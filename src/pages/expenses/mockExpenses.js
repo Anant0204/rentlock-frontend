@@ -12,25 +12,41 @@ export const getExpenses = () => {
   return [];
 };
 
-export const saveExpense = (data) => {
+export const saveExpense = async (data) => {
+  let backendItem = null;
   if (data) {
-    apiClient.post('/expenses', {
-      propertyId: Number(data.propertyId) || 1,
-      vendorId: data.vendorId ? Number(data.vendorId) : undefined,
-      category: data.category || 'General',
-      description: data.description || 'Property operating expense',
-      amount: Number(data.amount) || 0,
-      date: data.date,
-      isPaid: data.isPaid || false,
-    }).catch((err) => {
+    try {
+      const res = await apiClient.post('/expenses', {
+        propertyId: Number(data.propertyId) || 1,
+        vendorId: data.vendorId ? Number(data.vendorId) : undefined,
+        category: data.category || 'General',
+        description: data.description || 'Property operating expense',
+        amount: Number(data.amount) || 0,
+        date: data.date,
+        isPaid: Boolean(data.isPaid || data.paymentState === 'Paid'),
+      });
+      backendItem = res?.data || res?.item || res;
+    } catch (err) {
       console.warn('[API] Create expense failed:', err.message);
-    });
+    }
   }
 
   const saved = localStorage.getItem('custom_expenses_us');
   const customItems = saved ? JSON.parse(saved) : [];
-  customItems.unshift({ ...data, id: Date.now() });
+  const newItem = {
+    ...data,
+    id: backendItem?.id || Date.now(),
+    propertyName: data.propertyName || backendItem?.propertyName || 'General Portfolio',
+    vendor: data.vendor || backendItem?.vendorName || data.vendorName || 'In-House Staff',
+    vendorName: data.vendor || backendItem?.vendorName || data.vendorName || 'In-House Staff',
+    isPaid: Boolean(data.isPaid || data.paymentState === 'Paid'),
+    paymentState: data.paymentState || (data.isPaid ? 'Paid' : 'Unpaid Bill'),
+    status: data.status || (data.paymentState === 'Paid' ? 'Approved' : 'Pending'),
+    createdAt: backendItem?.createdAt || new Date().toISOString(),
+  };
+  customItems.unshift(newItem);
   localStorage.setItem('custom_expenses_us', JSON.stringify(customItems));
+  return newItem;
 };
 
 export const updateExpense = (id, data) => {

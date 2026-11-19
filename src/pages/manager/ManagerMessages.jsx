@@ -20,6 +20,7 @@ import {
   markManagerThreadRead,
 } from '../../data/managerWorkspaceData';
 import { readFilesAsDataUrls } from '../../data/tenantPortalData';
+import { addNotification } from '../../data/mockNotifications';
 
 export default function ManagerMessages() {
   const [searchParams] = useSearchParams();
@@ -274,6 +275,48 @@ export default function ManagerMessages() {
       senderName: user?.name || 'Sarah Jenkins',
     });
     setState(updated);
+
+    if (activeThread.id === 'admin-manager-thread' || activeThread.contactName?.includes('Admin')) {
+      const cleanDraft = draft.trim();
+      const timeLabel = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+      // Save to localStorage so Admin sees it in CommunicationsHub immediately
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith('pm_chat_manager')) {
+            const parsed = JSON.parse(localStorage.getItem(k) || '[]');
+            parsed.push({
+              id: Date.now(),
+              sender: user?.name || 'Sarah Jenkins (Manager)',
+              text: cleanDraft,
+              time: timeLabel,
+              isStaff: false,
+            });
+            localStorage.setItem(k, JSON.stringify(parsed));
+          }
+        }
+      } catch {}
+
+      // Real database message dispatch
+      apiClient.post('/messages', {
+        recipientId: 1, // Admin user
+        recipientEmail: 'admin@rentlock.com',
+        content: cleanDraft,
+      }).catch(() => {});
+
+      // Dispatch notification for Admin
+      addNotification({
+        title: `💬 Direct Message from ${user?.name || 'Sarah Jenkins'} (Manager)`,
+        desc: cleanDraft,
+        targetRole: 'admin',
+        recipientEmail: 'admin@rentlock.com',
+        sender: `${user?.name || 'Sarah Jenkins'} (Manager)`,
+        link: '/communication',
+        time: 'Just now',
+      });
+    }
+
     setDraft('');
     setAttachments([]);
     if (isInternalNote) {
@@ -324,9 +367,9 @@ export default function ManagerMessages() {
 
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Messages &amp; Email</h1>
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Communication</h1>
           <p className="text-sm text-gray-500 mt-1">
-            One inbox for tenant and vendor conversations
+            One inbox for tenant, owner, and management conversations
           </p>
         </div>
         <Button variant="primary" icon={Plus} onClick={() => setIsNewOpen(true)}>

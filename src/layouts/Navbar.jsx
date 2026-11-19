@@ -110,7 +110,7 @@ export default function Navbar() {
             category: 'Work Order',
           })),
           { id: 'm-home', type: 'Page', title: 'Home', subtitle: 'Manager Workspace', path: '/dashboard', category: 'Navigation' },
-          { id: 'm-msg', type: 'Page', title: 'Messages & Email', subtitle: 'Unified communications', path: '/manager/messages', category: 'Navigation' },
+          { id: 'm-msg', type: 'Page', title: 'Communication', subtitle: 'Unified communications', path: '/manager/communication', category: 'Navigation' },
           { id: 'm-sched', type: 'Page', title: 'Schedule', subtitle: 'Visits & compliance', path: '/manager/schedule', category: 'Navigation' },
           { id: 'm-rep', type: 'Page', title: 'Reports', subtitle: 'Assigned portfolio summary', path: '/manager/reports', category: 'Navigation' },
         ];
@@ -210,7 +210,7 @@ export default function Navbar() {
           { label: 'Work orders', path: '/manager/work-orders' },
           { label: 'Assigned properties', path: '/manager/properties' },
           { label: 'Add / view tenants', path: '/manager/tenants' },
-          { label: 'Messages & Email', path: '/manager/messages' },
+          { label: 'Communication', path: '/manager/communication' },
         ]
       : isOwner
         ? [
@@ -219,6 +219,7 @@ export default function Navbar() {
             { label: 'Expenses', path: '/owner/expenses' },
             { label: 'Disbursements', path: '/owner/disbursements' },
             { label: 'Records', path: '/owner/records' },
+            { label: 'Communication', path: '/owner/communication' },
           ]
         : [
             { label: 'Record Payment', path: '/rent-payments?tab=collections' },

@@ -19,6 +19,7 @@ import {
   addManagerTenant,
   addTenantPrivateNote,
 } from '../../data/managerWorkspaceData';
+import { getUnits } from '../../data/mockUnits';
 
 export default function ManagerTenants() {
   const navigate = useNavigate();
@@ -74,6 +75,51 @@ export default function ManagerTenants() {
 
   const canAddTenants = effectivePerms.canAddTenants;
 
+  // Real units inventory across custom storage & backend
+  const [allUnits, setAllUnits] = useState(() => {
+    const local = getUnits().filter((u) => !u.archived);
+    const fromProps = [];
+    try {
+      const customProps = JSON.parse(localStorage.getItem('custom_properties') || '[]');
+      if (Array.isArray(customProps)) {
+        customProps.forEach((p) => {
+          const inv = p.unitInventory || p.units;
+          if (Array.isArray(inv)) {
+            inv.forEach((u) => {
+              fromProps.push({
+                id: u.id || `u-${p.id}-${u.unitNumber || u.name}`,
+                propertyId: String(p.id),
+                propertyName: p.name,
+                unitNumber: u.unitNumber || u.name,
+                rent: Number(u.rent || u.rentAmount || 2000),
+                status: u.status || 'Vacant',
+              });
+            });
+          }
+        });
+      }
+    } catch {}
+    return [...local, ...fromProps];
+  });
+
+  useEffect(() => {
+    apiClient.get('/units?limit=100').then((res) => {
+      const liveUnits = res?.items || res;
+      if (Array.isArray(liveUnits) && liveUnits.length > 0) {
+        setAllUnits((prev) => {
+          const combined = [...liveUnits.filter((u) => !u.archived)];
+          const existingKeys = new Set(combined.map((u) => `${u.propertyId}-${u.unitNumber}`));
+          prev.forEach((u) => {
+            if (!existingKeys.has(`${u.propertyId}-${u.unitNumber}`)) {
+              combined.push(u);
+            }
+          });
+          return combined;
+        });
+      }
+    }).catch(() => {});
+  }, []);
+
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [form, setForm] = useState({
     name: '',
@@ -86,8 +132,103 @@ export default function ManagerTenants() {
     monthlyRent: '2000',
   });
 
+  // Selected property object in modal
+  const selectedPropertyObj = useMemo(() => {
+    return (
+      state.properties.find(
+        (p) =>
+          String(p.id) === String(form.propertyId) ||
+          (p.name && p.name.trim().toLowerCase() === String(form.propertyId).trim().toLowerCase())
+      ) ||
+      state.properties[0] ||
+      null
+    );
+  }, [state.properties, form.propertyId]);
+
+  // Strict dynamic units scoped strictly to the selected property
+  const availableUnitsForProperty = useMemo(() => {
+    if (!selectedPropertyObj) return [];
+    const pId = String(selectedPropertyObj.id);
+    const pName = (selectedPropertyObj.name || '').trim().toLowerCase();
+
+    const matched = allUnits.filter((u) => {
+      const uPropId = u.propertyId ? String(u.propertyId) : '';
+      const uPropName = (u.propertyName || '').trim().toLowerCase();
+      return (pId && uPropId === pId) || (pName && uPropName === pName);
+    });
+
+    const inlineInventory = selectedPropertyObj.unitInventory || selectedPropertyObj.units;
+    if (Array.isArray(inlineInventory)) {
+      inlineInventory.forEach((u) => {
+        const uNum = u.unitNumber || u.name;
+        if (uNum && !matched.some((m) => m.unitNumber === uNum)) {
+          matched.push({
+            id: u.id || `inline-${uNum}`,
+            propertyId: pId,
+            propertyName: selectedPropertyObj.name,
+            unitNumber: uNum,
+            rent: Number(u.rent || u.rentAmount || 2000),
+            status: u.status || 'Vacant',
+          });
+        }
+      });
+    }
+
+    const uniqueMap = new Map();
+    matched.forEach((u) => {
+      if (u.unitNumber && !uniqueMap.has(u.unitNumber)) {
+        uniqueMap.set(u.unitNumber, u);
+      }
+    });
+
+    return Array.from(uniqueMap.values());
+  }, [allUnits, selectedPropertyObj]);
+
+  // Auto-sync first available unit of property
+  useEffect(() => {
+    if (availableUnitsForProperty.length > 0) {
+      if (!form.unit || !availableUnitsForProperty.some((u) => u.unitNumber === form.unit)) {
+        const first = availableUnitsForProperty[0];
+        setForm((prev) => ({
+          ...prev,
+          unit: first.unitNumber,
+          monthlyRent: first.rent
+            ? String(first.rent)
+            : first.rentAmount
+            ? String(first.rentAmount)
+            : prev.monthlyRent,
+        }));
+      }
+    }
+  }, [availableUnitsForProperty, form.unit]);
+
+  const handlePropertyChange = (newPropertyId) => {
+    const propObj =
+      state.properties.find((p) => String(p.id) === String(newPropertyId)) || state.properties[0];
+    const pId = propObj ? String(propObj.id) : String(newPropertyId);
+    const pName = propObj?.name ? propObj.name.trim().toLowerCase() : '';
+
+    const nextUnits = allUnits.filter((u) => {
+      const uPropId = u.propertyId ? String(u.propertyId) : '';
+      const uPropName = (u.propertyName || '').trim().toLowerCase();
+      return (pId && uPropId === pId) || (pName && uPropName === pName);
+    });
+
+    const first = nextUnits[0];
+    setForm((prev) => ({
+      ...prev,
+      propertyId: newPropertyId,
+      unit: first?.unitNumber || '',
+      monthlyRent: first?.rent
+        ? String(first.rent)
+        : first?.rentAmount
+        ? String(first.rentAmount)
+        : prev.monthlyRent,
+    }));
+  };
+
   const activeHouseholdsCount = useMemo(
-    () => state.properties.reduce((s, p) => s + p.occupiedUnits, 0),
+    () => state.properties.reduce((s, p) => s + (p.occupiedUnits || 0), 0),
     [state.properties]
   );
 
@@ -129,6 +270,37 @@ export default function ManagerTenants() {
     );
   }, [state.workOrders, selectedTenant]);
 
+  const handleOpenAddModal = () => {
+    const initialProp =
+      state.properties.find((p) => !propertyFilter || String(p.id) === String(propertyFilter)) ||
+      state.properties[0];
+    const pId = initialProp ? String(initialProp.id) : '';
+    const pName = initialProp?.name ? initialProp.name.trim().toLowerCase() : '';
+
+    const propUnits = allUnits.filter((u) => {
+      const uPropId = u.propertyId ? String(u.propertyId) : '';
+      const uPropName = (u.propertyName || '').trim().toLowerCase();
+      return (pId && uPropId === pId) || (pName && uPropName === pName);
+    });
+
+    const first = propUnits[0];
+    setForm({
+      name: '',
+      email: '',
+      password: '',
+      phone: '',
+      propertyId: pId,
+      unit: first?.unitNumber || '',
+      leaseTerm: '12/01/26 - 11/30/27',
+      monthlyRent: first?.rent
+        ? String(first.rent)
+        : first?.rentAmount
+        ? String(first.rentAmount)
+        : '2000',
+    });
+    setIsAddOpen(true);
+  };
+
   const handleAddTenant = (e) => {
     e.preventDefault();
     if (!canAddTenants) {
@@ -144,6 +316,29 @@ export default function ManagerTenants() {
       password: form.password?.trim() || 'demo123',
     });
     setState(updated);
+
+    // Call backend API to persist to MySQL database
+    try {
+      const selectedProp =
+        state.properties.find((p) => String(p.id) === String(form.propertyId)) ||
+        state.properties[0];
+      const propIdNum = parseInt(selectedProp?.numericId || selectedProp?.originalId || selectedProp?.id || form.propertyId, 10);
+      apiClient.post('/tenants', {
+        name: form.name.trim(),
+        email: form.email.trim(),
+        password: form.password?.trim() || 'demo123',
+        mobile: form.phone?.trim() || '+1 (555) 010-2200',
+        propertyId: isNaN(propIdNum) ? undefined : propIdNum,
+        propertyName: selectedProp?.name || 'HAPPY',
+        unitNumber: form.unit.trim(),
+        rentAmount: Number(form.monthlyRent) || 2000,
+        depositAmount: Number(form.monthlyRent) || 2000,
+        moveInDate: new Date().toISOString().split('T')[0],
+      }).catch((err) => {
+        console.warn('[ManagerTenants] Backend DB sync notice:', err.message);
+      });
+    } catch {}
+
     setIsAddOpen(false);
     setForm({
       name: '',
@@ -155,7 +350,7 @@ export default function ManagerTenants() {
       leaseTerm: '12/01/26 - 11/30/27',
       monthlyRent: '2000',
     });
-    toast.success('Resident added with login credentials (time-stamped)');
+    toast.success('Resident enrolled and assigned to unit successfully!');
   };
 
   const handleAddPrivateNote = (e) => {
@@ -193,7 +388,7 @@ export default function ManagerTenants() {
           </div>
 
           {canAddTenants ? (
-            <Button variant="primary" icon={Plus} onClick={() => setIsAddOpen(true)}>
+            <Button variant="primary" icon={Plus} onClick={handleOpenAddModal}>
               Add tenant
             </Button>
           ) : (
@@ -542,9 +737,9 @@ export default function ManagerTenants() {
         <form onSubmit={handleAddTenant} className="space-y-4">
           <Select
             label="Assigned property"
-            options={state.properties.map((p) => ({ value: p.id, label: p.name }))}
+            options={state.properties.map((p) => ({ value: String(p.id), label: p.name }))}
             value={form.propertyId}
-            onChange={(e) => setForm({ ...form, propertyId: e.target.value })}
+            onChange={(e) => handlePropertyChange(e.target.value)}
           />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
@@ -581,13 +776,43 @@ export default function ManagerTenants() {
             />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Input
-              label="Unit"
-              required
-              placeholder="e.g. A-202"
-              value={form.unit}
-              onChange={(e) => setForm({ ...form, unit: e.target.value })}
-            />
+            {availableUnitsForProperty.length > 0 ? (
+              <Select
+                label="Unit *"
+                required
+                options={availableUnitsForProperty.map((u) => ({
+                  value: u.unitNumber,
+                  label: `${u.unitNumber}${u.rent || u.rentAmount ? ` ($${u.rent || u.rentAmount}/mo)` : ''}${u.status ? ` · ${u.status}` : ''}`,
+                }))}
+                value={form.unit}
+                onChange={(e) => {
+                  const selectedUnitNum = e.target.value;
+                  const matched = availableUnitsForProperty.find((u) => u.unitNumber === selectedUnitNum);
+                  setForm((prev) => ({
+                    ...prev,
+                    unit: selectedUnitNum,
+                    monthlyRent: matched?.rent
+                      ? String(matched.rent)
+                      : matched?.rentAmount
+                      ? String(matched.rentAmount)
+                      : prev.monthlyRent,
+                  }));
+                }}
+              />
+            ) : (
+              <div className="space-y-1">
+                <Input
+                  label="Unit *"
+                  required
+                  placeholder="e.g. Unit 101"
+                  value={form.unit}
+                  onChange={(e) => setForm({ ...form, unit: e.target.value })}
+                />
+                <p className="text-[11px] text-amber-600 font-medium">
+                  No pre-configured units found for {selectedPropertyObj?.name || 'this property'}.
+                </p>
+              </div>
+            )}
             <Input
               label="Monthly rent ($)"
               type="number"
@@ -595,11 +820,12 @@ export default function ManagerTenants() {
               onChange={(e) => setForm({ ...form, monthlyRent: e.target.value })}
             />
           </div>
-          <Input
+          {/* Lease term temporarily commented out per user request */}
+          {/* <Input
             label="Lease term"
             value={form.leaseTerm}
             onChange={(e) => setForm({ ...form, leaseTerm: e.target.value })}
-          />
+          /> */}
         </form>
       </Modal>
     </div>

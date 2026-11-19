@@ -32,51 +32,73 @@ export default function TenantMessages() {
   const fileInputRef = useRef(null);
   const threadEndRef = useRef(null);
 
-  // Sync real messages from Backend Database + LocalStorage Admin Chats + Notifications
+  // Sync real messages strictly for THIS authenticated tenant (Multi-tenant isolation)
   const syncAllMessages = useCallback(async () => {
     const adminMessages = [];
     const seenTexts = new Set();
+    const userEmail = (user?.email || '').toLowerCase().trim();
+    const userIdStr = user?.id ? String(user.id) : null;
+    const userName = (user?.name || '').toLowerCase().trim();
 
-    // 1. Scan localStorage pm_chat_tenant... for direct messages from Admin
+    // 1. Identify valid chat storage keys strictly belonging to THIS tenant
+    const allowedChatKeys = new Set();
+    if (userIdStr) {
+      allowedChatKeys.add(`pm_chat_tenant-${userIdStr}`);
+      allowedChatKeys.add(`pm_chat_${userIdStr}`);
+    }
+
     try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && (key.startsWith('pm_chat_tenant') || key === 'pm_chat_tenantvitara')) {
-          const raw = localStorage.getItem(key);
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) {
-              parsed.forEach((m) => {
-                const clean = (m.text || '').trim();
-                if (clean && !seenTexts.has(clean)) {
-                  seenTexts.add(clean);
-                  adminMessages.push({
-                    id: m.id || `admin-msg-${adminMessages.length}`,
-                    sender: m.isStaff || (m.sender && m.sender.includes('Admin')) ? 'management' : 'tenant',
-                    senderName: m.sender || 'Robert King (Admin)',
-                    text: clean,
-                    time: m.time || 'Just now',
-                    attachments: m.attachments || [],
-                  });
-                }
-              });
-            }
+      const customTenants = JSON.parse(localStorage.getItem('custom_tenants') || '[]');
+      if (Array.isArray(customTenants)) {
+        customTenants.forEach((t) => {
+          const tEmail = (t.email || '').toLowerCase().trim();
+          const tName = (t.name || '').toLowerCase().trim();
+          if ((userEmail && tEmail === userEmail) || (userName && tName === userName) || (userIdStr && String(t.id) === userIdStr)) {
+            allowedChatKeys.add(`pm_chat_tenant-${t.id}`);
+            allowedChatKeys.add(`pm_chat_${t.id}`);
+          }
+        });
+      }
+    } catch { }
+
+    // 1. Scan localStorage only for THIS tenant's chat keys
+    try {
+      for (const key of allowedChatKeys) {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((m) => {
+              const clean = (m.text || '').trim();
+              if (clean && !seenTexts.has(clean)) {
+                seenTexts.add(clean);
+                adminMessages.push({
+                  id: m.id || `admin-msg-${adminMessages.length}`,
+                  sender: m.isStaff || (m.sender && m.sender.includes('Admin')) ? 'management' : 'tenant',
+                  senderName: m.sender || 'Robert King (Admin)',
+                  text: clean,
+                  time: m.time || 'Just now',
+                  attachments: m.attachments || [],
+                });
+              }
+            });
           }
         }
       }
     } catch { }
 
-    // 2. Scan pm_notifications for any direct message notifications sent to tenant
+    // 2. Scan pm_notifications for direct messages strictly addressed to THIS tenant
     try {
       const rawNotifs = localStorage.getItem('pm_notifications');
       if (rawNotifs) {
         const notifs = JSON.parse(rawNotifs);
         if (Array.isArray(notifs)) {
           notifs.forEach((n) => {
-            const isTenantMsg =
-              n.targetRole === 'tenant' ||
-              (n.title && n.title.toLowerCase().includes('direct message'));
-            if (isTenantMsg && n.desc) {
+            const isForThisTenant =
+              (n.recipientEmail && userEmail && n.recipientEmail.toLowerCase().trim() === userEmail) ||
+              (n.recipientId && userIdStr && String(n.recipientId) === userIdStr);
+
+            if (isForThisTenant && n.desc) {
               const clean = n.desc.trim();
               if (clean && !seenTexts.has(clean)) {
                 seenTexts.add(clean);
@@ -136,7 +158,7 @@ export default function TenantMessages() {
       }
     } catch { }
 
-    // Assemble unified Admin conversation thread if there are local/notification messages
+    // Assemble unified Admin conversation thread ONLY if there are messages for THIS tenant
     let adminUnifiedThread = null;
     if (adminMessages.length > 0) {
       const lastMsg = adminMessages[adminMessages.length - 1];
@@ -155,7 +177,8 @@ export default function TenantMessages() {
     }
 
     setPortalState((prev) => {
-      let merged = [...(prev.threads || [])];
+      // Filter out admin-direct-thread first to prevent leak across tenants
+      let merged = (prev.threads || []).filter((t) => t.id !== 'admin-direct-thread');
 
       // Add backend threads
       for (const bt of backendThreadsList) {
@@ -167,22 +190,9 @@ export default function TenantMessages() {
         }
       }
 
-      // Add/Update admin direct thread
+      // Add admin direct thread ONLY if messages exist for this tenant
       if (adminUnifiedThread) {
-        const existingIdx = merged.findIndex((t) => t.id === 'admin-direct-thread');
-        if (existingIdx >= 0) {
-          // Merge unique messages
-          const existingMsgs = merged[existingIdx].messages || [];
-          const combined = [...adminUnifiedThread.messages];
-          existingMsgs.forEach((em) => {
-            if (!combined.some((c) => c.text === em.text)) {
-              combined.push(em);
-            }
-          });
-          merged[existingIdx] = { ...adminUnifiedThread, messages: combined };
-        } else {
-          merged.unshift(adminUnifiedThread);
-        }
+        merged.unshift(adminUnifiedThread);
       }
 
       return {
@@ -298,39 +308,32 @@ export default function TenantMessages() {
       return { ...prev, threads: nextThreads };
     });
 
-    // Sync to localStorage pm_chat_tenant... so Admin chat board sees Tenant's response immediately
+    // Sync strictly to THIS tenant's storage key so Admin chat sees Tenant's response with multi-tenant isolation
     try {
-      let matchedKey = null;
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && (k.startsWith('pm_chat_tenant') || k === 'pm_chat_tenantvitara')) {
-          matchedKey = k;
-          const raw = localStorage.getItem(k);
-          const parsed = raw ? JSON.parse(raw) : [];
-          parsed.push({
-            id: Date.now(),
-            sender: user?.name || 'Tenant',
-            text: cleanDraft,
-            time: timeLabel,
-            isStaff: false,
-          });
-          localStorage.setItem(k, JSON.stringify(parsed));
+      const uEmail = (user?.email || '').toLowerCase().trim();
+      const uIdStr = user?.id ? String(user.id) : null;
+      let tenantChatKey = `pm_chat_tenant-${uIdStr || 'demo'}`;
+
+      const customTenants = JSON.parse(localStorage.getItem('custom_tenants') || '[]');
+      if (Array.isArray(customTenants)) {
+        const matched = customTenants.find(
+          (t) => (uEmail && t.email && t.email.toLowerCase().trim() === uEmail) || (uIdStr && String(t.id) === uIdStr)
+        );
+        if (matched) {
+          tenantChatKey = `pm_chat_tenant-${matched.id}`;
         }
       }
-      if (!matchedKey) {
-        localStorage.setItem(
-          `pm_chat_tenant-${user?.id || 1}`,
-          JSON.stringify([
-            {
-              id: Date.now(),
-              sender: user?.name || 'Tenant',
-              text: cleanDraft,
-              time: timeLabel,
-              isStaff: false,
-            },
-          ])
-        );
-      }
+
+      const raw = localStorage.getItem(tenantChatKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      parsed.push({
+        id: Date.now(),
+        sender: user?.name || 'Tenant',
+        text: cleanDraft,
+        time: timeLabel,
+        isStaff: false,
+      });
+      localStorage.setItem(tenantChatKey, JSON.stringify(parsed));
     } catch { }
 
     // Save to real Backend Database

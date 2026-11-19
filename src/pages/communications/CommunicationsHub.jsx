@@ -226,9 +226,9 @@ export default function CommunicationsHub() {
 
     const recipientLink =
       selectedContact.role === 'manager'
-        ? '/manager/messages'
+        ? '/manager/communication'
         : selectedContact.role === 'owner'
-          ? '/owner/records'
+          ? '/owner/communication'
           : '/tenant/messages';
 
     // Dispatch direct notification to recipient
