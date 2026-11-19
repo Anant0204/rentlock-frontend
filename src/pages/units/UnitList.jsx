@@ -94,8 +94,7 @@ export default function UnitList() {
   const filteredData = useMemo(() => {
     const q = (searchQuery || '').toLowerCase();
     return allUnits.filter((unit) => {
-      const matchesArchive = activeTab === 'Archived' ? unit.archived : !unit.archived;
-      const matchesTab = activeTab === 'All' || activeTab === 'Archived' || unit.status === activeTab;
+      const matchesStatus = statusFilter === 'All' || unit.status === statusFilter;
       const matchesProp =
         propertyFilter === 'All' ||
         (unit.propertyName && unit.propertyName.toLowerCase() === propertyFilter.toLowerCase()) ||
