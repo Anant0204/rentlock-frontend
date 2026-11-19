@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Save, ArrowLeft, Plus, Trash2, Bed, Bath, ChevronDown } from 'lucide-react';
 import PageHeader from '../../components/shared/PageHeader';
@@ -6,6 +6,7 @@ import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import { getProperties } from '../../data/mockProperties';
 import { getUnitTypes, fetchUnitTypesFromBackend } from '../../utils/unitTypeStore';
+import { getParkingStalls, saveParkingStalls, assignParkingStall } from '../../data/mockOperations';
 import apiClient from '../../services/apiClient';
 import toast from 'react-hot-toast';
 
@@ -46,6 +47,7 @@ export default function AddUnit() {
   const [meters, setMeters] = useState([
     { id: 1, type: 'Electric', number: '' },
   ]);
+  const [parkingStalls, setParkingStalls] = useState(() => getParkingStalls());
 
   useEffect(() => {
     fetchUnitTypesFromBackend().then((types) => {
@@ -68,7 +70,31 @@ export default function AddUnit() {
         }
       }
     }).catch(() => {});
+
+    // Fetch live parking stalls
+    apiClient.get('/operations/parking').then((res) => {
+      const items = res?.items || res;
+      if (Array.isArray(items)) {
+        setParkingStalls(items);
+        saveParkingStalls(items);
+      }
+    }).catch(() => {});
   }, []);
+
+  const propertyStalls = useMemo(() => {
+    const selectedProp = properties.find((p) => String(p.id) === String(form.propertyId));
+    const selectedName = selectedProp?.name?.toLowerCase();
+
+    const filtered = parkingStalls.filter((s) => {
+      if (!s) return false;
+      if (form.propertyId && s.propertyId && String(s.propertyId) === String(form.propertyId)) return true;
+      if (selectedName && s.propertyName && s.propertyName.toLowerCase() === selectedName) return true;
+      if (!s.propertyId && !s.propertyName) return true;
+      return false;
+    });
+
+    return filtered.length > 0 ? filtered : parkingStalls;
+  }, [parkingStalls, form.propertyId, properties]);
 
   const update = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -112,7 +138,20 @@ export default function AddUnit() {
     const existing = JSON.parse(localStorage.getItem('custom_units') || '[]');
     localStorage.setItem('custom_units', JSON.stringify([...existing, newUnit]));
 
-    // 2. Call backend API to persist to MySQL database
+    // 2. Sync with parking stall in Parking Management
+    if (form.parkingSlot) {
+      const stallMatch = parkingStalls.find((s) => (s.spotNumber || s.stallNumber) === form.parkingSlot);
+      if (stallMatch) {
+        assignParkingStall(stallMatch.id, {
+          unitNumber: form.unitNumber,
+          propertyName: prop?.name || 'Sunrise Residency',
+          propertyId: Number(form.propertyId),
+          assignedResident: `Unit ${form.unitNumber} Resident`,
+        });
+      }
+    }
+
+    // 3. Call backend API to persist to MySQL database
     try {
       await apiClient.post('/units', {
         propertyId: Number(form.propertyId),
@@ -388,13 +427,24 @@ export default function AddUnit() {
               <label className="block text-sm font-medium text-gray-800 mb-1.5">
                 Assigned Parking Space
               </label>
-              <input
-                type="text"
-                placeholder="e.g., P-A01"
-                value={form.parkingSlot}
-                onChange={(e) => update('parkingSlot', e.target.value)}
-                className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
-              />
+              <div className="relative">
+                <select
+                  value={form.parkingSlot || ''}
+                  onChange={(e) => update('parkingSlot', e.target.value)}
+                  className="w-full appearance-none rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 pr-9 text-sm text-gray-800 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20 cursor-pointer"
+                >
+                  <option value="">None / No Assigned Spot</option>
+                  {propertyStalls.map((s) => (
+                    <option key={s.id || s.spotNumber} value={s.spotNumber || s.stallNumber}>
+                      {s.spotNumber || s.stallNumber} ({s.spotType || s.stallType || 'Standard Covered'}{s.lotLocation ? ` · ${s.lotLocation}` : ''}{s.assignedResident || (s.unitNumber && s.unitNumber !== 'Unassigned') ? ` · Assigned to ${s.unitNumber}` : ' · Available'})
+                    </option>
+                  ))}
+                  {form.parkingSlot && !propertyStalls.some((s) => (s.spotNumber || s.stallNumber) === form.parkingSlot) && (
+                    <option value={form.parkingSlot}>{form.parkingSlot}</option>
+                  )}
+                </select>
+                <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
             </div>
 
             <div>
