@@ -25,23 +25,106 @@ import { AMENITIES, US_STATES } from '../../utils/constants';
 import { useTable } from '../../hooks/useTable';
 import toast from 'react-hot-toast';
 
-function UnitsTab({ propertyId }) {
+function UnitsTab({ propertyId, propertyName, units: propUnits = [] }) {
   const navigate = useNavigate();
-  const units = getUnits().filter((u) => String(u.propertyId) === String(propertyId));
+  const [fetchedUnits, setFetchedUnits] = useState([]);
+
+  useEffect(() => {
+    if (propUnits && propUnits.length > 0) return;
+    if (propertyId) {
+      apiClient.get(`/units?propertyId=${propertyId}`).then((res) => {
+        const items = res?.items || res;
+        if (Array.isArray(items) && items.length > 0) {
+          const formatted = items.map((u) => ({
+            id: u.id,
+            propertyId,
+            propertyName,
+            unitNumber: u.unitNumber,
+            floor: u.floor || 1,
+            bhk: u.bhk || `${u.bedrooms || 1} BD / ${u.bathrooms || 1} BA`,
+            bedrooms: u.bedrooms || 1,
+            bathrooms: u.bathrooms || 1,
+            beds: u.bedrooms || 1,
+            baths: u.bathrooms || 1,
+            rent: Number(u.rentAmount || u.rent || 0),
+            marketRent: Number(u.rentAmount || u.rent || 0),
+            rentAmount: Number(u.rentAmount || u.rent || 0),
+            size: Number(u.sqft || u.size || 850),
+            sqft: Number(u.sqft || u.size || 850),
+            status: u.status || 'Vacant',
+          }));
+          setFetchedUnits(formatted);
+        }
+      }).catch(() => {});
+    }
+  }, [propertyId, propUnits, propertyName]);
+
+  const units = useMemo(() => {
+    // 1. Direct units passed from PropertyDetail
+    if (Array.isArray(propUnits) && propUnits.length > 0) {
+      return propUnits;
+    }
+    // 2. Fetched from backend /units?propertyId=...
+    if (Array.isArray(fetchedUnits) && fetchedUnits.length > 0) {
+      return fetchedUnits;
+    }
+    // 3. Fallback to localStorage units strictly matching propertyId or propertyName
+    const all = getUnits();
+    const matched = all.filter((u) => {
+      const matchId = String(u.propertyId) === String(propertyId);
+      const matchName = Boolean(propertyName && u.propertyName && u.propertyName.trim().toLowerCase() === propertyName.trim().toLowerCase());
+      return matchId || matchName;
+    });
+
+    if (matched.length > 0) {
+      // Auto-repair propertyId in custom_units if it was saved under an old/temp ID
+      let needsSave = false;
+      const updatedAll = all.map((u) => {
+        if (propertyName && u.propertyName && u.propertyName.trim().toLowerCase() === propertyName.trim().toLowerCase() && String(u.propertyId) !== String(propertyId)) {
+          needsSave = true;
+          return { ...u, propertyId };
+        }
+        return u;
+      });
+      if (needsSave) {
+        localStorage.setItem('custom_units', JSON.stringify(updatedAll));
+      }
+    }
+
+    return matched;
+  }, [propUnits, fetchedUnits, propertyId, propertyName]);
+
   const table = useTable(units, 10);
   const columns = [
     { key: 'unitNumber', label: 'Unit', sortable: true },
     { key: 'floor', label: 'Floor', sortable: true },
-    { key: 'bhk', label: 'Layout', sortable: true },
-    { key: 'rent', label: 'Market Rent', sortable: true, align: 'right', render: (v) => formatCurrency(v) },
-    { key: 'status', label: 'Status', render: (v) => <span className={`text-[11px] px-2 py-0.5 rounded-lg font-bold ${getStatusColor(v)}`}>{v}</span> },
+    {
+      key: 'bhk',
+      label: 'Layout',
+      sortable: true,
+      render: (v, r) => v || (r.bedrooms || r.beds ? `${r.bedrooms || r.beds} Bed, ${r.bathrooms || r.baths || 1} Bath` : '—'),
+    },
+    {
+      key: 'rent',
+      label: 'Market Rent',
+      sortable: true,
+      align: 'right',
+      render: (v, r) => formatCurrency(v ?? r.rentAmount ?? r.marketRent ?? 0),
+    },
+    {
+      key: 'status',
+      label: 'Status',
+      render: (v) => <span className={`text-[11px] px-2 py-0.5 rounded-lg font-bold ${getStatusColor(v || 'Vacant')}`}>{v || 'Vacant'}</span>,
+    },
   ];
   return <Table columns={columns} data={table.data} page={table.page} totalPages={table.totalPages} onPageChange={table.setPage} onRowClick={(r) => navigate(`/units/${r.id}`)} />;
 }
 
-function TenantsTab({ propertyId }) {
+function TenantsTab({ propertyId, propertyName, tenants: propTenants }) {
   const navigate = useNavigate();
-  const tenants = getTenants().filter((t) => t.propertyId === propertyId);
+  const tenants = (propTenants && propTenants.length > 0)
+    ? propTenants
+    : getTenants().filter((t) => String(t.propertyId) === String(propertyId) || (propertyName && t.property && t.property.trim().toLowerCase() === propertyName.trim().toLowerCase()));
   return (
     <div className="space-y-2">
       {tenants.map((t) => (
@@ -108,21 +191,27 @@ export default function PropertyDetail() {
   }, [isEditModalOpen, editForm, property?.id]);
 
   const getPropertyUnitsList = () => {
-    const fromMock = getUnits().filter((u) => String(u.propertyId) === String(id));
+    const fromMock = getUnits().filter(
+      (u) => String(u.propertyId) === String(id) || (property?.name && u.propertyName && u.propertyName.trim().toLowerCase() === property.name.trim().toLowerCase())
+    );
     if (fromMock.length > 0) return fromMock;
     if (Array.isArray(property?.units) && property.units.length > 0) {
       return property.units.map((u) => ({
         id: u.id,
         propertyId: id,
+        propertyName: property.name,
         unitNumber: u.unitNumber,
         floor: u.floor || 1,
-        bhk: `${u.bedrooms || 1} BD / ${u.bathrooms || 1} BA`,
-        beds: u.bedrooms || 1,
-        baths: u.bathrooms || 1,
-        rent: u.rentAmount || 2000,
-        rentAmount: u.rentAmount || 2000,
-        size: u.sqft || 850,
-        sqft: u.sqft || 850,
+        bhk: u.bhk || `${u.bedrooms || u.beds || 1} BD / ${u.bathrooms || u.baths || 1} BA`,
+        bedrooms: u.bedrooms || u.beds || 1,
+        bathrooms: u.bathrooms || u.baths || 1,
+        beds: u.bedrooms || u.beds || 1,
+        baths: u.bathrooms || u.baths || 1,
+        rent: Number(u.rentAmount || u.rent || 2000),
+        rentAmount: Number(u.rentAmount || u.rent || 2000),
+        marketRent: Number(u.rentAmount || u.rent || 2000),
+        size: Number(u.sqft || u.size || 850),
+        sqft: Number(u.sqft || u.size || 850),
         status: u.status || 'Vacant',
       }));
     }
@@ -195,29 +284,46 @@ export default function PropertyDetail() {
         setEditForm(merged);
 
         // Also sync units
-        const currentLocalUnits = getUnits().filter((u) => String(u.propertyId) === String(id));
-        if (currentLocalUnits.length > 0) {
-          setPropertyUnits(currentLocalUnits);
-        } else if (Array.isArray(data.units) && data.units.length > 0) {
+        if (Array.isArray(data.units) && data.units.length > 0) {
           const formatted = data.units.map((u) => ({
             id: u.id,
             propertyId: id,
+            propertyName: data.name,
             unitNumber: u.unitNumber,
             floor: u.floor || 1,
-            bhk: `${u.bedrooms || 1} BD / ${u.bathrooms || 1} BA`,
-            beds: u.bedrooms || 1,
-            baths: u.bathrooms || 1,
-            rent: u.rentAmount || 2000,
-            rentAmount: u.rentAmount || 2000,
-            size: u.sqft || 850,
-            sqft: u.sqft || 850,
+            bhk: u.bhk || `${u.bedrooms || u.beds || 1} BD / ${u.bathrooms || u.baths || 1} BA`,
+            bedrooms: u.bedrooms || u.beds || 1,
+            bathrooms: u.bathrooms || u.baths || 1,
+            beds: u.bedrooms || u.beds || 1,
+            baths: u.bathrooms || u.baths || 1,
+            rent: Number(u.rentAmount || u.rent || 2000),
+            rentAmount: Number(u.rentAmount || u.rent || 2000),
+            marketRent: Number(u.rentAmount || u.rent || 2000),
+            size: Number(u.sqft || u.size || 850),
+            sqft: Number(u.sqft || u.size || 850),
             status: u.status || 'Vacant',
           }));
           setPropertyUnits(formatted);
+
+          // Update custom_units in localStorage so all tabs and unit directory stay in sync
+          const allCustom = getUnits();
+          const cleanCustom = allCustom.filter(
+            (u) => String(u.propertyId) !== String(id) && (!u.propertyName || u.propertyName.trim().toLowerCase() !== data.name.trim().toLowerCase())
+          );
+          localStorage.setItem('custom_units', JSON.stringify([...cleanCustom, ...formatted]));
+        } else {
+          const currentLocalUnits = getUnits().filter(
+            (u) => String(u.propertyId) === String(id) || (data.name && u.propertyName && u.propertyName.trim().toLowerCase() === data.name.trim().toLowerCase())
+          );
+          if (currentLocalUnits.length > 0) {
+            setPropertyUnits(currentLocalUnits);
+          }
         }
       }
     }).catch(() => {
-      const currentLocalUnits = getUnits().filter((u) => String(u.propertyId) === String(id));
+      const currentLocalUnits = getUnits().filter(
+        (u) => String(u.propertyId) === String(id) || (property?.name && u.propertyName && u.propertyName.trim().toLowerCase() === property.name.trim().toLowerCase())
+      );
       if (currentLocalUnits.length > 0) {
         setPropertyUnits(currentLocalUnits);
       }
@@ -532,8 +638,18 @@ export default function PropertyDetail() {
         </div>
       ),
     },
-    { key: 'units', label: 'Units', count: property.totalUnits, content: <UnitsTab propertyId={property.id} /> },
-    { key: 'tenants', label: 'Tenants', count: property.occupiedUnits, content: <TenantsTab propertyId={property.id} /> },
+    {
+      key: 'units',
+      label: 'Units',
+      count: propertyUnits.length || property.totalUnits || 0,
+      content: <UnitsTab propertyId={property.id} propertyName={property.name} units={propertyUnits} />,
+    },
+    {
+      key: 'tenants',
+      label: 'Tenants',
+      count: property.occupiedUnits || 0,
+      content: <TenantsTab propertyId={property.id} propertyName={property.name} />,
+    },
     {
       key: 'financials',
       label: 'Financials & Equity',

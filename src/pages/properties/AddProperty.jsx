@@ -522,10 +522,34 @@ export default function AddProperty() {
         units: unitInventory,
       };
 
+      let createdProp = null;
       if (savedPropertyId) {
-        await apiClient.put(`/properties/${savedPropertyId}`, payload);
+        createdProp = await apiClient.put(`/properties/${savedPropertyId}`, payload);
       } else {
-        await apiClient.post('/properties', payload);
+        createdProp = await apiClient.post('/properties', payload);
+      }
+
+      const backendProp = createdProp?.data || createdProp;
+      const realPropId = backendProp?.id;
+
+      if (realPropId && String(realPropId) !== String(newProperty.id)) {
+        // Sync custom_properties with real ID
+        const currentProps = JSON.parse(localStorage.getItem('custom_properties') || '[]');
+        const updatedProps = currentProps.map((p) =>
+          String(p.id) === String(newProperty.id) || p.name === newProperty.name
+            ? { ...p, id: realPropId }
+            : p
+        );
+        localStorage.setItem('custom_properties', JSON.stringify(updatedProps));
+
+        // Sync custom_units with real propertyId
+        const currentUnits = JSON.parse(localStorage.getItem('custom_units') || '[]');
+        const updatedUnits = currentUnits.map((u) =>
+          String(u.propertyId) === String(newProperty.id) || (u.propertyName && u.propertyName.toLowerCase() === newProperty.name.toLowerCase())
+            ? { ...u, propertyId: realPropId, propertyName: newProperty.name }
+            : u
+        );
+        localStorage.setItem('custom_units', JSON.stringify(updatedUnits));
       }
 
       // Associate property with assigned manager in roster
