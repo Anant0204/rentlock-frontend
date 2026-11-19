@@ -57,24 +57,41 @@ export const deleteTenant = (id) => {
   }
 };
 
+export const saveTenantLocal = (tenant) => {
+  const saved = localStorage.getItem('custom_tenants');
+  const customItems = saved ? JSON.parse(saved) : [];
+  const index = customItems.findIndex((p) => String(p.id) === String(tenant.id));
+  if (index > -1) {
+    customItems[index] = { ...customItems[index], ...tenant };
+  } else {
+    customItems.push(tenant);
+  }
+  localStorage.setItem('custom_tenants', JSON.stringify(customItems));
+};
+
 export const updateTenant = (id, data) => {
-  // 1. Send real PUT to backend API
+  // 1. Send real PUT to backend API with sanitized fields
   if (id && data) {
-    apiClient.put(`/tenants/${id}`, data).catch((err) => {
+    const cleanPayload = {
+      name: data.name,
+      email: data.email,
+      phone: data.phone || data.mobile,
+      status: data.status,
+      propertyId: data.propertyId ? Number(data.propertyId) : undefined,
+      unitId: data.unitId ? Number(data.unitId) : undefined,
+      emergencyContact: data.emergencyContact,
+      vehiclePlate: data.vehiclePlate,
+      moveInDate: data.moveInDate,
+      moveOutDate: data.moveOutDate,
+      privateNotes: data.privateNotes || data.notes,
+    };
+    apiClient.put(`/tenants/${id}`, cleanPayload).catch((err) => {
       console.warn('[API] Update tenant failed:', err.message);
     });
   }
 
   // 2. Update reactive local cache
-  const saved = localStorage.getItem('custom_tenants');
-  const customItems = saved ? JSON.parse(saved) : [];
-  const index = customItems.findIndex((p) => p.id === id);
-  if (index > -1) {
-    customItems[index] = { ...customItems[index], ...data };
-  } else {
-    customItems.push({ id, ...data });
-  }
-  localStorage.setItem('custom_tenants', JSON.stringify(customItems));
+  saveTenantLocal({ id, ...data });
 };
 
 export const mockTenants = getTenants();

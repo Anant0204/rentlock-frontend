@@ -290,10 +290,10 @@ export default function CreateLease() {
     const matchedUnit = units.find((u) => u.propertyName === form.propertyName && u.unitNumber === form.unitNumber);
 
     const activeReminders = [];
-    if (form.reminders.d90) activeReminders.push(90);
-    if (form.reminders.d60) activeReminders.push(60);
-    if (form.reminders.d30) activeReminders.push(30);
-    if (form.reminders.d7) activeReminders.push(7);
+    if (form.reminders?.d90) activeReminders.push(90);
+    if (form.reminders?.d60) activeReminders.push(60);
+    if (form.reminders?.d30) activeReminders.push(30);
+    if (form.reminders?.d7) activeReminders.push(7);
 
     updateLease(nextId, {
       id: nextId,
@@ -440,27 +440,7 @@ export default function CreateLease() {
                 <Input label="Scheduled Move-In Date" type="date" value={form.moveInDate} onChange={(e) => setForm({ ...form, moveInDate: e.target.value })} />
               </div>
 
-              <div className="p-4 rounded-xl bg-gray-50 border border-gray-200 space-y-2.5">
-                <p className="text-xs font-bold text-gray-700 uppercase tracking-wider">Automated Expiry & Renewal Reminders</p>
-                <div className="flex flex-wrap gap-4 text-xs">
-                  {[
-                    { key: 'd90', label: '90 Days Before' },
-                    { key: 'd60', label: '60 Days Before' },
-                    { key: 'd30', label: '30 Days Before' },
-                    { key: 'd7', label: '7 Days Before' },
-                  ].map((rem) => (
-                    <label key={rem.key} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={form.reminders[rem.key]}
-                        onChange={(e) => setForm({ ...form, reminders: { ...form.reminders, [rem.key]: e.target.checked } })}
-                        className="rounded border-gray-300 text-indigo-600"
-                      />
-                      <span className="font-medium text-gray-700">{rem.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
+
             </div>
           )}
 

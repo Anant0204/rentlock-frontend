@@ -16,7 +16,7 @@ import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
 import Avatar from '../../components/ui/Avatar';
 import apiClient from '../../services/apiClient';
-import { getOwners, addOwner, updateOwner, archiveOwner } from '../../data/mockExtra';
+import { getOwners, addOwner, updateOwner, deleteOwner } from '../../data/mockExtra';
 import { getProperties } from '../../data/mockProperties';
 import { formatUsd } from '../../utils/formatters';
 
@@ -243,18 +243,26 @@ export default function OwnerList() {
     if (!targetOwner) return;
     setIsDeleting(true);
     try {
-      await apiClient.delete(`/owners/${targetOwner.id}`);
+      try {
+        await apiClient.delete(`/owners/${targetOwner.id}`);
+      } catch (err) {
+        console.warn('[API] Delete owner failed, removing locally:', err?.message);
+      }
+      deleteOwner(targetOwner.id);
+      const updated = owners.filter((o) => String(o.id) !== String(targetOwner.id));
+      setOwners(updated);
+      localStorage.setItem('custom_owners', JSON.stringify(updated));
+      setIsDeleteModalOpen(false);
+      setTargetOwner(null);
+      toast.success(`Owner ${targetOwner.name} deleted successfully.`);
     } catch (err) {
-      console.warn('[API] Delete owner failed, removing locally:', err?.message);
+      console.error('Failed to delete owner:', err);
+      toast.error('Failed to delete owner.');
+      setIsDeleteModalOpen(false);
+      setTargetOwner(null);
+    } finally {
+      setIsDeleting(false);
     }
-    deleteOwner(targetOwner.id);
-    const updated = owners.filter((o) => String(o.id) !== String(targetOwner.id));
-    setOwners(updated);
-    localStorage.setItem('custom_owners', JSON.stringify(updated));
-    setIsDeleteModalOpen(false);
-    toast.success(`Owner ${targetOwner.name} deleted successfully.`);
-    setTargetOwner(null);
-    setIsDeleting(false);
   };
 
   const handleExportCsv = () => {

@@ -20,8 +20,24 @@ export default function PropertyList() {
     apiClient.get('/properties?limit=100').then((res) => {
       const items = res?.items || res;
       if (Array.isArray(items)) {
-        setAllProperties(items);
-        localStorage.setItem('custom_properties', JSON.stringify(items));
+        const localList = getProperties();
+        const merged = items.map((p) => {
+          const local = localList.find((l) => String(l.id) === String(p.id));
+          return {
+            ...local,
+            ...p,
+            id: p.id,
+            name: p.name || local?.name,
+            code: local?.code || p.code || `PR-${String(p.id).padStart(2, '0')}`,
+            category: local?.category || p.category || p.type,
+            portfolioGroup: local?.portfolioGroup || p.portfolioGroup || 'Brooklyn & Queens',
+            manager: p.manager || local?.manager || 'Unassigned',
+            owner: p.owner || local?.owner || 'Unassigned',
+            units: Array.isArray(p.units) && p.units.length > 0 ? p.units : (local?.units || []),
+          };
+        });
+        setAllProperties(merged);
+        localStorage.setItem('custom_properties', JSON.stringify(merged));
       }
     }).catch(() => {});
   }, []);

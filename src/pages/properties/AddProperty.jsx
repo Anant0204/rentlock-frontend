@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Building2, MapPin, Layers, DollarSign, CheckCircle2,
@@ -26,11 +26,50 @@ const STEPS = [
   'Review Property',
 ];
 
+const DRAFT_KEY = 'rentlock_add_property_draft';
+
 export default function AddProperty() {
   const navigate = useNavigate();
   const [ownersList, setOwnersList] = useState(() => getOwners().filter((o) => !o.archived));
   const [managersList, setManagersList] = useState(() => getManagers().filter((m) => !m.archived));
-  const [currentStep, setCurrentStep] = useState(0);
+
+  useEffect(() => {
+    // Fetch live managers
+    apiClient.get('/managers').then((res) => {
+      const items = res?.items || res;
+      if (Array.isArray(items) && items.length > 0) {
+        setManagersList((prev) => {
+          const names = new Set(items.map((m) => m.name.toLowerCase()));
+          const extra = prev.filter((m) => !names.has(m.name.toLowerCase()));
+          return [...items, ...extra];
+        });
+      }
+    }).catch(() => {});
+
+    // Fetch live owners
+    apiClient.get('/owners').then((res) => {
+      const items = res?.items || res;
+      if (Array.isArray(items) && items.length > 0) {
+        setOwnersList((prev) => {
+          const names = new Set(items.map((o) => o.name.toLowerCase()));
+          const extra = prev.filter((o) => !names.has(o.name.toLowerCase()));
+          return [...items, ...extra];
+        });
+      }
+    }).catch(() => {});
+  }, []);
+
+  const [currentStep, setCurrentStep] = useState(() => {
+    try {
+      const saved = localStorage.getItem(DRAFT_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (typeof parsed.currentStep === 'number') return parsed.currentStep;
+      }
+    } catch {}
+    return 0;
+  });
+
   const [savedPropertyId, setSavedPropertyId] = useState(null);
 
   // In-place Add Owner modal state
@@ -58,43 +97,98 @@ export default function AddProperty() {
     status: 'Active',
   });
 
-  const [form, setForm] = useState({
-    name: '',
-    code: '',
-    type: 'Residential',
-    category: 'Multifamily',
-    portfolioGroup: 'Brooklyn & Queens',
-    street: '',
-    city: '',
-    state: 'NY',
-    zip: '',
-    country: 'United States',
-    manager: managersList[0]?.name || 'Sarah Jenkins',
-    managementStartDate: '2026-11-15',
-    buildingName: 'Main Building',
-    floors: '4',
-    status: 'Active',
-    purchasePrice: '',
-    acquisitionDate: '',
-    closingCosts: '',
-    marketValue: '',
-    valuationSource: 'Independent Appraisal',
-    assessedValue: '',
-    taxYear: '2026',
-    lender: '',
-    loanNumber: '',
-    mortgageBalance: '',
-    image: null,
+  const [form, setForm] = useState(() => {
+    try {
+      const saved = localStorage.getItem(DRAFT_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.form) return parsed.form;
+      }
+    } catch {}
+    return {
+      name: '',
+      code: '',
+      type: 'Residential',
+      category: 'Multifamily',
+      portfolioGroup: 'Brooklyn & Queens',
+      street: '',
+      city: '',
+      state: 'NY',
+      zip: '',
+      country: 'United States',
+      manager: '',
+      managementStartDate: new Date().toISOString().split('T')[0],
+      buildingName: '',
+      floors: '',
+      status: 'Active',
+      purchasePrice: '',
+      acquisitionDate: '',
+      closingCosts: '',
+      marketValue: '',
+      valuationSource: '',
+      assessedValue: '',
+      taxYear: '',
+      lender: '',
+      loanNumber: '',
+      mortgageBalance: '',
+      image: null,
+    };
   });
 
-  const [ownershipRows, setOwnershipRows] = useState([
-    { ownerId: ownersList[0]?.id || 1, name: ownersList[0]?.name || 'Robert King', share: 100 },
-  ]);
-  const [selectedAmenities, setSelectedAmenities] = useState(['Parking', 'Controlled Access']);
-  const [unitInventory, setUnitInventory] = useState([]);
-  const [newUnit, setNewUnit] = useState({ unitNumber: 'A-101', floor: '1', beds: '2', baths: '1', type: '2 BD / 1 BA', size: '900', rent: '2100' });
+  const [ownershipRows, setOwnershipRows] = useState(() => {
+    try {
+      const saved = localStorage.getItem(DRAFT_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed.ownershipRows) && parsed.ownershipRows.length > 0) return parsed.ownershipRows;
+      }
+    } catch {}
+    return [
+      { ownerId: 1, name: '', share: 100 },
+    ];
+  });
+
+  const [selectedAmenities, setSelectedAmenities] = useState(() => {
+    try {
+      const saved = localStorage.getItem(DRAFT_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed.selectedAmenities)) return parsed.selectedAmenities;
+      }
+    } catch {}
+    return ['Parking', 'Controlled Access'];
+  });
+
+  const [unitInventory, setUnitInventory] = useState(() => {
+    try {
+      const saved = localStorage.getItem(DRAFT_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed.unitInventory)) return parsed.unitInventory;
+      }
+    } catch {}
+    return [];
+  });
+
+  const [newUnit, setNewUnit] = useState({ unitNumber: '', floor: '', beds: '', baths: '', type: '', size: '', rent: '' });
   const [improvements, setImprovements] = useState([]);
   const [newImp, setNewImp] = useState({ item: '', date: '', cost: '' });
+
+  // Auto-save draft whenever inputs change so accidental close/refresh never loses data
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        DRAFT_KEY,
+        JSON.stringify({
+          form,
+          ownershipRows,
+          selectedAmenities,
+          unitInventory,
+          currentStep,
+        })
+      );
+    } catch {}
+  }, [form, ownershipRows, selectedAmenities, unitInventory, currentStep]);
 
   const update = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
 
@@ -133,7 +227,7 @@ export default function AddProperty() {
       name: '',
       ownerType: 'Individual',
       email: '',
-      phone: '+1 (212) 555-0188',
+      phone: '',
       mailingAddress: '',
       password: '',
       status: 'Active',
@@ -180,7 +274,7 @@ export default function AddProperty() {
     setNewManagerForm({
       name: '',
       email: '',
-      phone: '+1 (718) 555-0192',
+      phone: '',
       password: '',
       spendingCap: 1000,
       employmentType: 'Full-Time',
@@ -243,14 +337,15 @@ export default function AddProperty() {
     setUnitInventory((prev) => [...prev, unitToAdd]);
     toast.success(`Unit ${unitNum} added!`);
 
-    // Prepare next unit number e.g. A-101 -> A-102
-    const numPart = parseInt(unitNum.replace(/\D/g, ''), 10);
-    const prefix = unitNum.replace(/[0-9]/g, '') || 'A-';
-    const nextUnitNum = !isNaN(numPart) ? `${prefix}${numPart + 1}` : `Unit-${unitInventory.length + 2}`;
-    setNewUnit((prev) => ({
-      ...prev,
-      unitNumber: nextUnitNum,
-    }));
+    setNewUnit({
+      unitNumber: '',
+      floor: '',
+      beds: '',
+      baths: '',
+      type: '',
+      size: '',
+      rent: '',
+    });
 
     // Trigger backend API calls so Network tab records the request
     try {
@@ -409,14 +504,19 @@ export default function AddProperty() {
     // 2. Call backend API to persist property & units in MySQL
     try {
       const primaryOwner = ownershipRows[0];
+      const selectedMgr = managersList.find((m) => m.name.toLowerCase() === (form.manager || '').toLowerCase());
       const payload = {
         name: newProperty.name,
+        code: newProperty.code,
         type: newProperty.type,
+        category: newProperty.category,
+        portfolioGroup: newProperty.portfolioGroup,
         address: fullAddress,
         city: newProperty.city,
         state: newProperty.state,
         zipCode: newProperty.zip,
         manager: form.manager,
+        managerId: selectedMgr?.id,
         owner: primaryOwner?.name,
         ownerId: primaryOwner?.ownerId,
         units: unitInventory,
@@ -446,7 +546,11 @@ export default function AddProperty() {
       console.warn('[AddProperty] API save fallback:', apiErr.message);
     }
 
-    toast.success(draftOnly ? 'Progress saved as Draft' : 'Property & Units created successfully!');
+    try {
+      localStorage.removeItem(DRAFT_KEY);
+    } catch {}
+
+    toast.success('Property & Units created successfully!');
     navigate('/properties');
   };
 
@@ -496,7 +600,6 @@ export default function AddProperty() {
               <Button variant="secondary" onClick={() => setCurrentStep((s) => Math.max(0, s - 1))} icon={ChevronLeft} disabled={currentStep === 0}>
                 Back
               </Button>
-              <Button variant="secondary" onClick={() => handleSave(true)}>Save Progress</Button>
               <Button
                 onClick={handleNext}
                 icon={currentStep === STEPS.length - 1 ? CheckCircle2 : ChevronRight}
@@ -630,8 +733,8 @@ export default function AddProperty() {
             {currentStep === 2 && (
               <div className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <Input label="Building / Block Name" value={form.buildingName} onChange={(e) => update('buildingName', e.target.value)} />
-                  <Input label="Total Floors" type="number" value={form.floors} onChange={(e) => update('floors', e.target.value)} />
+                  <Input label="Building / Block Name" placeholder="e.g. Main Building" value={form.buildingName} onChange={(e) => update('buildingName', e.target.value)} />
+                  <Input label="Total Floors" type="number" min={1} placeholder="e.g. 4" value={form.floors} onChange={(e) => update('floors', e.target.value)} />
                   <Select label="Property Status" options={['Active', 'Under Construction', 'Onboarding']} value={form.status} onChange={(e) => update('status', e.target.value)} />
                   <div className="flex items-end">
                     <Button type="button" variant="secondary" icon={Upload} onClick={() => toast.success('Imported 2 sample units from CSV template')} className="w-full">
@@ -677,6 +780,7 @@ export default function AddProperty() {
                         label="Floor"
                         type="number"
                         min={0}
+                        placeholder="e.g. 1"
                         value={newUnit.floor}
                         onChange={(e) => setNewUnit({ ...newUnit, floor: e.target.value })}
                       />
@@ -735,6 +839,7 @@ export default function AddProperty() {
                         label="Sq Ft"
                         type="number"
                         min={0}
+                        placeholder="e.g. 900"
                         value={newUnit.size}
                         onChange={(e) => setNewUnit({ ...newUnit, size: e.target.value })}
                       />
@@ -744,6 +849,7 @@ export default function AddProperty() {
                         label="Market Rent ($)"
                         type="number"
                         min={0}
+                        placeholder="e.g. 2100"
                         value={newUnit.rent}
                         onChange={(e) => setNewUnit({ ...newUnit, rent: e.target.value })}
                       />
@@ -802,9 +908,9 @@ export default function AddProperty() {
                   <Input label="Acquisition Date" type="date" value={form.acquisitionDate} onChange={(e) => update('acquisitionDate', e.target.value)} />
                   <Input label="Closing Costs ($)" type="number" placeholder="0" value={form.closingCosts} onChange={(e) => update('closingCosts', e.target.value)} />
                   <Input label="Estimated Market Value ($)" type="number" placeholder="0" value={form.marketValue} onChange={(e) => update('marketValue', e.target.value)} />
-                  <Input label="Valuation Source" value={form.valuationSource} onChange={(e) => update('valuationSource', e.target.value)} />
+                  <Input label="Valuation Source" placeholder="e.g. Independent Appraisal" value={form.valuationSource} onChange={(e) => update('valuationSource', e.target.value)} />
                   <Input label="Assessed Tax Value ($)" type="number" placeholder="0" value={form.assessedValue} onChange={(e) => update('assessedValue', e.target.value)} />
-                  <Input label="Tax Year" value={form.taxYear} onChange={(e) => update('taxYear', e.target.value)} />
+                  <Input label="Tax Year" placeholder="e.g. 2026" value={form.taxYear} onChange={(e) => update('taxYear', e.target.value)} />
                   <Input label="Mortgage Balance ($)" type="number" placeholder="0" value={form.mortgageBalance} onChange={(e) => update('mortgageBalance', e.target.value)} />
                 </div>
               </div>

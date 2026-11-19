@@ -130,7 +130,7 @@ export default function ManagerList() {
       name: '',
       email: '',
       password: '',
-      phone: '+1 (718) 555-0190',
+      phone: '',
       spendingCap: 1000,
       employmentType: 'Full-Time',
       shift: 'Day (8 AM–5 PM)',

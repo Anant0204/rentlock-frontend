@@ -108,7 +108,7 @@ export default function VisitorList() {
   const handleOpenLogModal = () => {
     setForm({
       guestName: '',
-      phone: '+1 (555) 010-0000',
+      phone: '',
       hostResident: tenants[0]?.name || 'Rebecca Miller',
       unitNumber: tenants[0]?.unitNumber || 'A-204',
       propertyName: 'Sunrise Residency',

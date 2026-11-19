@@ -10,7 +10,7 @@ import Button from '../../components/ui/Button';
 import apiClient from '../../services/apiClient';
 import { getProperties } from '../../data/mockProperties';
 import { getUnits } from '../../data/mockUnits';
-import { getTenants, updateTenant } from '../../data/mockTenants';
+import { getTenants, saveTenantLocal, updateTenant } from '../../data/mockTenants';
 import { formatUsd } from '../../utils/formatters';
 
 export default function AddTenant() {
@@ -132,7 +132,7 @@ export default function AddTenant() {
       const created = res?.data || res;
 
       const tenantId = created?.id || Date.now();
-      updateTenant(tenantId, {
+      saveTenantLocal({
         id: tenantId,
         name: form.name.trim(),
         mobile: form.mobile || '+1 (347) 555-0190',
@@ -162,7 +162,7 @@ export default function AddTenant() {
       const existing = getTenants();
       const nextId = existing.reduce((max, t) => Math.max(max, Number(t.id) || 0), 0) + 1;
 
-      updateTenant(nextId, {
+      saveTenantLocal({
         id: nextId,
         name: form.name.trim(),
         photo: null,

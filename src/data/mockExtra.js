@@ -163,16 +163,15 @@ export const archiveOwner = (id, archived = true) => {
 };
 
 export const deleteOwner = (id) => {
-  if (id) {
-    apiClient.delete(`/owners/${id}`).catch((err) => {
-      console.warn('[API] Delete owner in backend failed:', err.message);
-    });
-  }
   const saved = localStorage.getItem('custom_owners');
   if (saved) {
-    const customItems = JSON.parse(saved);
-    const updated = customItems.filter((p) => String(p.id) !== String(id));
-    localStorage.setItem('custom_owners', JSON.stringify(updated));
+    try {
+      const customItems = JSON.parse(saved);
+      const updated = customItems.filter((p) => String(p.id) !== String(id));
+      localStorage.setItem('custom_owners', JSON.stringify(updated));
+    } catch (e) {
+      console.warn('Failed to update local storage:', e);
+    }
   }
 };
 

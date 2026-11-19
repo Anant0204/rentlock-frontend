@@ -106,7 +106,7 @@ export default function StaffList() {
       name: '',
       role: 'Maintenance Specialist',
       department: 'Facilities & Repairs',
-      phone: '+1 (555) 010-0000',
+      phone: '',
       email: '',
       assignedProperty: 'Sunrise Residency & Portfolio',
       shift: 'Mon–Fri · 8:00 AM – 4:30 PM',

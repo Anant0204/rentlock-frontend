@@ -71,8 +71,41 @@ export default function PropertyDetail() {
   const [editForm, setEditForm] = useState(property || {});
   const [activeEditTab, setActiveEditTab] = useState('basic');
 
-  const managersList = useMemo(() => getManagers().filter((m) => !m.archived), []);
-  const ownersList = useMemo(() => getOwners().filter((o) => !o.archived), []);
+  const [managersList, setManagersList] = useState(() => getManagers().filter((m) => !m.archived));
+  const [ownersList, setOwnersList] = useState(() => getOwners().filter((o) => !o.archived));
+
+  useEffect(() => {
+    apiClient.get('/managers').then((res) => {
+      const items = res?.items || res;
+      if (Array.isArray(items) && items.length > 0) {
+        setManagersList((prev) => {
+          const names = new Set(items.map((m) => m.name.toLowerCase()));
+          const extra = prev.filter((m) => !names.has(m.name.toLowerCase()));
+          return [...items, ...extra];
+        });
+      }
+    }).catch(() => {});
+
+    apiClient.get('/owners').then((res) => {
+      const items = res?.items || res;
+      if (Array.isArray(items) && items.length > 0) {
+        setOwnersList((prev) => {
+          const names = new Set(items.map((o) => o.name.toLowerCase()));
+          const extra = prev.filter((o) => !names.has(o.name.toLowerCase()));
+          return [...items, ...extra];
+        });
+      }
+    }).catch(() => {});
+  }, []);
+
+  // Save edit form draft whenever fields change
+  useEffect(() => {
+    if (isEditModalOpen && editForm && property?.id) {
+      try {
+        localStorage.setItem(`property_edit_draft_${property.id}`, JSON.stringify(editForm));
+      } catch {}
+    }
+  }, [isEditModalOpen, editForm, property?.id]);
 
   const getPropertyUnitsList = () => {
     const fromMock = getUnits().filter((u) => String(u.propertyId) === String(id));
@@ -99,11 +132,11 @@ export default function PropertyDetail() {
   const [propertyUnits, setPropertyUnits] = useState(getPropertyUnitsList);
   const [newUnitForm, setNewUnitForm] = useState({
     unitNumber: '',
-    floor: '1',
+    floor: '',
     beds: '2',
     baths: '1',
-    size: '900',
-    rent: '2100',
+    size: '',
+    rent: '',
     status: 'Vacant',
   });
 
@@ -137,16 +170,20 @@ export default function PropertyDetail() {
           code: local.code || data.code || `PR-${String(id).padStart(2, '0')}`,
           category: local.category || data.category || data.type || 'Multifamily',
           portfolioGroup: local.portfolioGroup || data.portfolioGroup || 'Brooklyn & Queens',
-          buildingName: local.buildingName || data.buildingName || 'Main Building',
-          floors: local.floors || data.floors || 4,
+          buildingName: local.buildingName || data.buildingName || '',
+          floors: local.floors || data.floors || '',
           street: local.street || (data.address ? data.address.split(',')[0].trim() : '') || '',
           city: local.city || data.city || 'Brooklyn',
           state: local.state || data.state || 'NY',
           zip: local.zip || local.zipCode || data.zipCode || '',
           zipCode: local.zip || local.zipCode || data.zipCode || '',
           country: local.country || data.country || 'United States',
-          manager: typeof data.manager === 'object' && data.manager !== null ? data.manager.name : (data.manager || local.manager || 'Sarah Jenkins'),
-          owner: typeof data.owner === 'object' && data.owner !== null ? data.owner.name : (data.owner || local.owner || 'Claire Bennett'),
+          manager: typeof data.manager === 'object' && data.manager !== null
+            ? data.manager.name
+            : ((data.manager && data.manager !== 'Sarah Jenkins') ? data.manager : (local.manager || data.manager || '')),
+          owner: typeof data.owner === 'object' && data.owner !== null
+            ? data.owner.name
+            : ((data.owner && data.owner !== 'Claire Bennett') ? data.owner : (local.owner || data.owner || '')),
           amenities: loadedAmenities,
           financials: {
             ...(local.financials || {}),
@@ -230,6 +267,13 @@ export default function PropertyDetail() {
       loadedAmenities = ['Parking', 'Controlled Access'];
     }
 
+    const draftKey = `property_edit_draft_${id}`;
+    let draft = null;
+    try {
+      const savedDraft = localStorage.getItem(draftKey);
+      if (savedDraft) draft = JSON.parse(savedDraft);
+    } catch {}
+
     setEditForm({
       ...local,
       ...property,
@@ -245,26 +289,27 @@ export default function PropertyDetail() {
       country: property.country || local.country || 'United States',
       manager: typeof property.manager === 'object' && property.manager !== null
         ? property.manager.name
-        : (property.manager || local.manager || managersList[0]?.name || 'Sarah Jenkins'),
+        : (property.manager || local.manager || ''),
       owner: typeof property.owner === 'object' && property.owner !== null
         ? property.owner.name
-        : (property.owner || local.owner || ownersList[0]?.name || 'Claire Bennett'),
+        : (property.owner || local.owner || ''),
       managementStartDate: property.managementStartDate || local.managementStartDate || '2026-11-15',
       status: property.status || local.status || 'Active',
-      buildingName: property.buildingName || local.buildingName || 'Main Building',
-      floors: property.floors || local.floors || 4,
+      buildingName: property.buildingName || local.buildingName || '',
+      floors: property.floors || local.floors || '',
       yearBuilt: property.yearBuilt || local.yearBuilt || '',
       amenities: loadedAmenities,
       purchasePrice: f.purchasePrice ?? (local.purchasePrice || ''),
       acquisitionDate: f.acquisitionDate || local.acquisitionDate || '',
       closingCosts: f.closingCosts ?? (local.closingCosts || ''),
       marketValue: f.marketValue ?? (local.marketValue || ''),
-      valuationSource: f.valuationSource || local.valuationSource || 'Independent Appraisal',
+      valuationSource: f.valuationSource || local.valuationSource || '',
       assessedValue: f.assessedValue ?? (local.assessedValue || ''),
-      taxYear: f.taxYear || local.taxYear || '2026',
+      taxYear: f.taxYear || local.taxYear || '',
       lender: f.lender || local.lender || '',
       loanNumber: f.loanNumber || local.loanNumber || '',
       mortgageBalance: f.mortgageBalance ?? (local.mortgageBalance || ''),
+      ...(draft || {}),
     });
 
     const currentUnits = getPropertyUnitsList();
@@ -340,7 +385,7 @@ export default function PropertyDetail() {
     });
   };
 
-  const handleUpdate = () => {
+  const handleUpdate = async () => {
     if (!editForm.name || !editForm.name.trim()) {
       return toast.error('Property Name is required');
     }
@@ -355,9 +400,9 @@ export default function PropertyDetail() {
       acquisitionDate: editForm.acquisitionDate || '',
       closingCosts: Number(editForm.closingCosts) || 0,
       marketValue: Number(editForm.marketValue) || 0,
-      valuationSource: editForm.valuationSource || 'Independent Appraisal',
+      valuationSource: editForm.valuationSource || '',
       assessedValue: Number(editForm.assessedValue) || 0,
-      taxYear: editForm.taxYear || '2026',
+      taxYear: editForm.taxYear || '',
       lender: editForm.lender || '',
       loanNumber: editForm.loanNumber || '',
       mortgageBalance: Number(editForm.mortgageBalance) || 0,
@@ -390,8 +435,39 @@ export default function PropertyDetail() {
       financials: updatedFinancials,
     };
 
+    // 1. Send clean payload to backend API
+    try {
+      const selectedMgr = managersList.find((m) => m.name.toLowerCase() === (editForm.manager || '').toLowerCase());
+      const selectedOwn = ownersList.find((o) => o.name.toLowerCase() === (editForm.owner || '').toLowerCase());
+      const apiPayload = {
+        name: updatedData.name,
+        code: updatedData.code,
+        type: updatedData.type,
+        category: updatedData.category,
+        portfolioGroup: updatedData.portfolioGroup,
+        address: fullAddress,
+        city: updatedData.city,
+        state: updatedData.state,
+        zipCode: updatedData.zipCode,
+        manager: editForm.manager,
+        managerId: selectedMgr?.id,
+        owner: editForm.owner,
+        ownerId: selectedOwn?.id,
+        yearBuilt: updatedData.yearBuilt,
+        amenities: updatedData.amenities,
+      };
+      await apiClient.put(`/properties/${property.id}`, apiPayload);
+    } catch (err) {
+      console.warn('[API] Update property failed:', err?.message);
+    }
+
+    // 2. Update local state & custom_properties
     updateProperty(property.id, updatedData);
     setProperty(updatedData);
+
+    try {
+      localStorage.removeItem(`property_edit_draft_${property.id}`);
+    } catch {}
 
     // Sync manager assignment in custom_managers roster
     try {
@@ -557,6 +633,7 @@ export default function PropertyDetail() {
       <Modal
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
+        closeOnBackdropClick={false}
         title={`Edit Property: ${property.name}`}
         size="xl"
         footer={
@@ -741,6 +818,7 @@ export default function PropertyDetail() {
                     label="Floor"
                     type="number"
                     min={1}
+                    placeholder="e.g. 1"
                     value={newUnitForm.floor}
                     onChange={(e) => setNewUnitForm({ ...newUnitForm, floor: e.target.value })}
                   />
@@ -759,6 +837,7 @@ export default function PropertyDetail() {
                   <Input
                     label="Rent ($/mo)"
                     type="number"
+                    placeholder="e.g. 2100"
                     value={newUnitForm.rent}
                     onChange={(e) => setNewUnitForm({ ...newUnitForm, rent: e.target.value })}
                   />

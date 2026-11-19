@@ -87,14 +87,22 @@ export default function OwnerDetail() {
   const handleDelete = async () => {
     setIsDeleting(true);
     try {
-      await apiClient.delete(`/owners/${owner.id}`);
+      try {
+        await apiClient.delete(`/owners/${owner.id}`);
+      } catch (err) {
+        console.warn('API delete owner failed:', err?.message);
+      }
+      deleteOwner(owner.id);
+      toast.success(`Owner ${owner.name} deleted successfully.`);
+      setIsDeleteModalOpen(false);
+      navigate('/owners');
     } catch (err) {
-      console.warn('API delete owner failed:', err?.message);
+      console.error('Failed to delete owner:', err);
+      toast.error('Failed to delete owner.');
+      setIsDeleteModalOpen(false);
+    } finally {
+      setIsDeleting(false);
     }
-    deleteOwner(owner.id);
-    toast.success(`Owner ${owner.name} deleted successfully.`);
-    setIsDeleteModalOpen(false);
-    navigate('/owners');
   };
 
   // Sample historical distributions

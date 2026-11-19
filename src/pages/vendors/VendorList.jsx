@@ -4,7 +4,7 @@ import {
   DollarSign, CheckCircle2, Wrench, Star, Building2,
   Calendar, LayoutGrid, List, Zap, Wind, Flame,
   CreditCard, Sparkles, AlertTriangle, FileText, Check,
-  Clock, MapPin, Trash2, Pencil
+  Clock, MapPin, Trash2, Pencil, Tags
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import PageHeader from '../../components/shared/PageHeader';
@@ -18,18 +18,16 @@ import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
 import apiClient from '../../services/apiClient';
 import { formatUsd } from '../../utils/formatters';
-import { getVendors, addVendor, updateVendor, deleteVendor } from '../../data/mockOperations';
-
-const CATEGORIES = [
-  'All Categories',
-  'Plumbing',
-  'Electrical',
-  'HVAC',
-  'Landscaping & Snow',
-  'Fire Safety',
-  'Janitorial',
-  'General Contractor',
-];
+import {
+  getVendors,
+  addVendor,
+  updateVendor,
+  deleteVendor,
+  getServiceCategories,
+  saveServiceCategories,
+  addServiceCategory,
+  deleteServiceCategory,
+} from '../../data/mockOperations';
 
 const CATEGORY_ICONS = {
   Plumbing: { icon: Wrench, color: 'text-blue-600 bg-blue-50 border-blue-200' },
@@ -43,6 +41,7 @@ const CATEGORY_ICONS = {
 
 export default function VendorList() {
   const [vendors, setVendors] = useState(() => getVendors());
+  const [categories, setCategories] = useState(() => getServiceCategories());
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('All Categories');
   const [viewMode, setViewMode] = useState('cards'); // 'cards' | 'table'
@@ -51,11 +50,15 @@ export default function VendorList() {
   const [isPayOpen, setIsPayOpen] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [newCatInput, setNewCatInput] = useState('');
+  const [isSubmittingCat, setIsSubmittingCat] = useState(false);
   const [selectedVendor, setSelectedVendor] = useState(null);
   const [vendorToEdit, setVendorToEdit] = useState(null);
   const [vendorToDelete, setVendorToDelete] = useState(null);
 
   useEffect(() => {
+    // 1. Fetch vendors
     apiClient.get('/operations/vendors').then((res) => {
       const items = res?.items || res;
       if (Array.isArray(items) && items.length > 0) {
@@ -81,6 +84,19 @@ export default function VendorList() {
         setVendors(merged);
         localStorage.setItem('custom_vendors', JSON.stringify(merged));
         localStorage.setItem('pm_vendors', JSON.stringify(merged));
+      }
+    }).catch(() => {});
+
+    // 2. Fetch service categories
+    apiClient.get('/operations/service-categories').then((res) => {
+      const items = res?.items || res;
+      if (Array.isArray(items) && items.length > 0) {
+        const catNames = items.map((c) => (typeof c === 'string' ? c : c.name)).filter(Boolean);
+        setCategories((prev) => {
+          const merged = Array.from(new Set([...prev, ...catNames]));
+          saveServiceCategories(merged);
+          return merged;
+        });
       }
     }).catch(() => {});
   }, []);
@@ -253,6 +269,56 @@ export default function VendorList() {
     setVendorToDelete(null);
   };
 
+  const handleAddCategory = async (e) => {
+    if (e) e.preventDefault();
+    const trimmed = newCatInput.trim();
+    if (!trimmed) {
+      toast.error('Please enter a category name.');
+      return;
+    }
+    if (categories.some((c) => c.toLowerCase() === trimmed.toLowerCase())) {
+      toast.error(`Category "${trimmed}" already exists.`);
+      return;
+    }
+    setIsSubmittingCat(true);
+    try {
+      const updated = await addServiceCategory(trimmed);
+      setCategories(updated);
+      setNewCatInput('');
+      toast.success(`Service category "${trimmed}" added.`);
+    } catch {
+      toast.error('Failed to add category.');
+    } finally {
+      setIsSubmittingCat(false);
+    }
+  };
+
+  const handleDeleteCategory = async (cat) => {
+    const linkedVendors = vendors.filter((v) => (v.category || '').toLowerCase() === cat.toLowerCase());
+    if (linkedVendors.length > 0) {
+      const confirmProceed = window.confirm(
+        `There ${linkedVendors.length === 1 ? 'is' : 'are'} ${linkedVendors.length} vendor(s) currently assigned to "${cat}". Deleting this category will reassign them to "General Contractor". Proceed?`
+      );
+      if (!confirmProceed) return;
+
+      const updatedVendors = vendors.map((v) =>
+        (v.category || '').toLowerCase() === cat.toLowerCase()
+          ? { ...v, category: 'General Contractor' }
+          : v
+      );
+      setVendors(updatedVendors);
+      localStorage.setItem('pm_vendors', JSON.stringify(updatedVendors));
+      localStorage.setItem('custom_vendors', JSON.stringify(updatedVendors));
+    }
+
+    const updatedCats = await deleteServiceCategory(cat);
+    setCategories(updatedCats);
+    if (categoryFilter.toLowerCase() === cat.toLowerCase()) {
+      setCategoryFilter('All Categories');
+    }
+    toast.success(`Category "${cat}" removed.`);
+  };
+
   return (
     <div className="space-y-6 pb-12">
       {/* Top Header */}
@@ -261,9 +327,19 @@ export default function VendorList() {
         subtitle="Manage building contractors, service providers, insurance verification, and payments."
         breadcrumbs={[{ label: 'Dashboard', path: '/dashboard' }, { label: 'Vendors & Payees' }]}
         actions={
-          <Button icon={Plus} size="sm" onClick={() => setIsAddOpen(true)}>
-            Add New Vendor
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              icon={Tags}
+              size="sm"
+              onClick={() => setIsCategoryModalOpen(true)}
+            >
+              Service Categories
+            </Button>
+            <Button icon={Plus} size="sm" onClick={() => setIsAddOpen(true)}>
+              Add New Vendor
+            </Button>
+          </div>
         }
       />
 
@@ -347,12 +423,12 @@ export default function VendorList() {
 
         {/* Category Pills */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
-          {CATEGORIES.map((cat) => {
+          {['All Categories', ...categories].map((cat) => {
             const count =
               cat === 'All Categories'
                 ? vendors.length
-                : vendors.filter((v) => v.category === cat).length;
-            const isSelected = categoryFilter === cat;
+                : vendors.filter((v) => (v.category || '').toLowerCase() === cat.toLowerCase()).length;
+            const isSelected = categoryFilter.toLowerCase() === cat.toLowerCase();
 
             return (
               <button
@@ -767,7 +843,7 @@ export default function VendorList() {
             <Select
               label="Trade / Service Category"
               value={form.category}
-              options={['Plumbing', 'Electrical', 'HVAC', 'Landscaping & Snow', 'Fire Safety', 'Janitorial', 'General Contractor', 'Roofing', 'Pest Control']}
+              options={categories}
               onChange={(e) => setForm({ ...form, category: e.target.value })}
             />
             <Select
@@ -860,7 +936,7 @@ export default function VendorList() {
             <Select
               label="Trade / Service Category"
               value={editForm.category}
-              options={['Plumbing', 'Electrical', 'HVAC', 'Landscaping & Snow', 'Fire Safety', 'Janitorial', 'General Contractor', 'Roofing', 'Pest Control']}
+              options={categories}
               onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
             />
             <Select
@@ -1099,6 +1175,104 @@ export default function VendorList() {
               </div>
             </div>
           )}
+        </div>
+      </Modal>
+
+      {/* Manage Service Categories Modal */}
+      <Modal
+        isOpen={isCategoryModalOpen}
+        onClose={() => setIsCategoryModalOpen(false)}
+        title="Manage Trade / Service Categories"
+        size="md"
+        footer={
+          <div className="flex justify-end">
+            <Button variant="secondary" onClick={() => setIsCategoryModalOpen(false)}>
+              Done
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4 text-xs text-gray-700">
+          {/* Add Category Input */}
+          <div className="p-3.5 bg-gray-50 rounded-xl border border-gray-200 space-y-2.5">
+            <p className="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-1.5">
+              <Tags className="w-3.5 h-3.5 text-indigo-600" /> Add New Service Category
+            </p>
+            <form onSubmit={handleAddCategory} className="flex gap-2">
+              <Input
+                placeholder="e.g. Carpentry, Elevator Maintenance..."
+                value={newCatInput}
+                onChange={(e) => setNewCatInput(e.target.value)}
+                className="flex-1"
+              />
+              <Button
+                type="submit"
+                icon={Plus}
+                loading={isSubmittingCat}
+                className="shrink-0"
+              >
+                Add
+              </Button>
+            </form>
+            <p className="text-[11px] text-gray-500">
+              New categories will immediately appear in the Vendor registration form and filter tabs.
+            </p>
+          </div>
+
+          {/* List of Categories */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-[11px] font-bold text-gray-500 px-1 uppercase tracking-wider">
+              <span>Configured Categories ({categories.length})</span>
+              <span>Linked Vendors</span>
+            </div>
+
+            <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
+              {categories.length === 0 ? (
+                <div className="p-4 text-center text-gray-400 bg-gray-50 rounded-xl border border-gray-100">
+                  No service categories found. Add one above.
+                </div>
+              ) : (
+                categories.map((cat) => {
+                  const linkedCount = vendors.filter(
+                    (v) => (v.category || '').toLowerCase() === cat.toLowerCase()
+                  ).length;
+                  const catStyle = CATEGORY_ICONS[cat] || {
+                    icon: Wrench,
+                    color: 'text-indigo-600 bg-indigo-50 border-indigo-200',
+                  };
+                  const IconComp = catStyle.icon || Wrench;
+
+                  return (
+                    <div
+                      key={cat}
+                      className="flex items-center justify-between p-2.5 rounded-xl bg-white border border-gray-200 hover:border-gray-300 transition-all shadow-2xs"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className={`p-1.5 rounded-lg border ${catStyle.color}`}>
+                          <IconComp className="w-3.5 h-3.5" />
+                        </div>
+                        <span className="text-xs font-semibold text-gray-800">{cat}</span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                          {linkedCount} {linkedCount === 1 ? 'vendor' : 'vendors'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteCategory(cat)}
+                          title={`Delete "${cat}" category`}
+                          className="text-gray-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
         </div>
       </Modal>
     </div>

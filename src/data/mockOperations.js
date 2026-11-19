@@ -5,6 +5,65 @@ import apiClient from '../services/apiClient';
 // ──────────────────────────────────────────────
 // VENDORS & PAYEES
 // ──────────────────────────────────────────────
+export const DEFAULT_SERVICE_CATEGORIES = [
+  'Plumbing',
+  'Electrical',
+  'HVAC',
+  'Landscaping & Snow',
+  'Fire Safety',
+  'Janitorial',
+  'General Contractor',
+  'Roofing',
+  'Pest Control',
+];
+
+export const getServiceCategories = () => {
+  try {
+    const raw = localStorage.getItem('pm_service_categories');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch (err) {
+    console.warn('Could not read categories cache', err);
+  }
+  return DEFAULT_SERVICE_CATEGORIES;
+};
+
+export const saveServiceCategories = (categories) => {
+  localStorage.setItem('pm_service_categories', JSON.stringify(categories));
+};
+
+export const addServiceCategory = async (name) => {
+  const trimmed = (name || '').trim();
+  if (!trimmed) return getServiceCategories();
+  try {
+    await apiClient.post('/operations/service-categories', { name: trimmed });
+  } catch (err) {
+    console.warn('[API] Create service category notice:', err.message);
+  }
+  const current = getServiceCategories();
+  if (!current.some((c) => c.toLowerCase() === trimmed.toLowerCase())) {
+    const updated = [...current, trimmed];
+    saveServiceCategories(updated);
+    return updated;
+  }
+  return current;
+};
+
+export const deleteServiceCategory = async (name) => {
+  const trimmed = (name || '').trim();
+  try {
+    await apiClient.delete(`/operations/service-categories/${encodeURIComponent(trimmed)}`);
+  } catch (err) {
+    console.warn('[API] Delete service category notice:', err.message);
+  }
+  const current = getServiceCategories();
+  const updated = current.filter((c) => c.toLowerCase() !== trimmed.toLowerCase());
+  saveServiceCategories(updated);
+  return updated;
+};
+
 const INITIAL_VENDORS = [];
 
 export const getVendors = () => {
