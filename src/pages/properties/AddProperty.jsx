@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Building2, MapPin, Layers, DollarSign, CheckCircle2,
-  ChevronRight, ChevronLeft, Plus, Trash2, Sparkles, Upload, Bed, Bath
+  ChevronRight, ChevronLeft, Plus, Trash2, Sparkles, Upload, Bed, Bath, Car
 } from 'lucide-react';
 import PageHeader from '../../components/shared/PageHeader';
 import Card from '../../components/ui/Card';
@@ -15,6 +15,7 @@ import Modal from '../../components/ui/Modal';
 import { AMENITIES, US_STATES, UNIT_TYPES } from '../../utils/constants';
 import { formatCurrency } from '../../utils/formatters';
 import { getOwners, getManagers, addOwner, addManager, updateManager } from '../../data/mockExtra';
+import { getParkingStalls, saveParkingStalls } from '../../data/mockOperations';
 import apiClient from '../../services/apiClient';
 import toast from 'react-hot-toast';
 
@@ -170,6 +171,37 @@ export default function AddProperty() {
     return [];
   });
 
+  const [parkingStalls, setParkingStalls] = useState(() => {
+    try {
+      const saved = localStorage.getItem(DRAFT_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed.parkingStalls)) return parsed.parkingStalls;
+      }
+    } catch {}
+    return [];
+  });
+
+  const [isAddStallOpen, setIsAddStallOpen] = useState(false);
+  const [addStallForm, setAddStallForm] = useState({
+    spotNumber: '',
+    spotType: 'Standard Covered',
+    lotLocation: 'Sub-Level 1 (North Garage)',
+    monthlyFee: '150',
+  });
+
+  const [isAssignStallOpen, setIsAssignStallOpen] = useState(false);
+  const [selectedStallForAssign, setSelectedStallForAssign] = useState(null);
+  const [assignStallForm, setAssignStallForm] = useState({
+    stallId: '',
+    unitNumber: '',
+    assignedResident: '',
+    vehicle: '',
+    licensePlate: '',
+    permitTag: '',
+    monthlyFee: '150',
+  });
+
   const [newUnit, setNewUnit] = useState({ unitNumber: '', floor: '', beds: '', baths: '', type: '', size: '', rent: '' });
   const [improvements, setImprovements] = useState([]);
   const [newImp, setNewImp] = useState({ item: '', date: '', cost: '' });
@@ -184,11 +216,12 @@ export default function AddProperty() {
           ownershipRows,
           selectedAmenities,
           unitInventory,
+          parkingStalls,
           currentStep,
         })
       );
     } catch {}
-  }, [form, ownershipRows, selectedAmenities, unitInventory, currentStep]);
+  }, [form, ownershipRows, selectedAmenities, unitInventory, parkingStalls, currentStep]);
 
   const update = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
 
@@ -432,6 +465,109 @@ export default function AddProperty() {
     setNewImp({ item: '', date: '', cost: '' });
   };
 
+  const handleAddStall = (e) => {
+    if (e) e.preventDefault();
+    if (!addStallForm.spotNumber.trim()) {
+      return toast.error('Spot number is required (e.g. P-109).');
+    }
+    const newStall = {
+      id: `STALL-TEMP-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      spotNumber: addStallForm.spotNumber.trim(),
+      propertyName: form.name || form.buildingName || 'New Property',
+      lotLocation: addStallForm.lotLocation.trim() || 'Sub-Level 1 (North Garage)',
+      spotType: addStallForm.spotType || 'Standard Covered',
+      monthlyFee: Number(addStallForm.monthlyFee) || 150,
+      assignedResident: null,
+      unitNumber: 'Unassigned',
+      vehicle: '—',
+      licensePlate: '—',
+      permitTag: '—',
+      status: 'Vacant · Available',
+    };
+    setParkingStalls((prev) => [...prev, newStall]);
+    setAddStallForm({
+      spotNumber: '',
+      spotType: 'Standard Covered',
+      lotLocation: 'Sub-Level 1 (North Garage)',
+      monthlyFee: '150',
+    });
+    setIsAddStallOpen(false);
+    toast.success(`Parking stall ${newStall.spotNumber} added!`);
+  };
+
+  const handleOpenAssign = (stall) => {
+    const targetStall = stall || (parkingStalls.find((s) => !s.assignedResident) || parkingStalls[0]);
+    if (!targetStall) {
+      return toast.error('Please create at least one parking stall first.');
+    }
+    setSelectedStallForAssign(targetStall);
+    setAssignStallForm({
+      stallId: targetStall.id,
+      unitNumber: targetStall.unitNumber !== 'Unassigned' ? targetStall.unitNumber : (unitInventory[0]?.unitNumber || ''),
+      assignedResident: targetStall.assignedResident || '',
+      vehicle: targetStall.vehicle !== '—' ? targetStall.vehicle : '',
+      licensePlate: targetStall.licensePlate !== '—' ? targetStall.licensePlate : '',
+      permitTag: targetStall.permitTag !== '—' ? targetStall.permitTag : `PRM-${targetStall.spotNumber}`,
+      monthlyFee: targetStall.monthlyFee || '150',
+    });
+    setIsAssignStallOpen(true);
+  };
+
+  const handleAssignStallSubmit = (e) => {
+    if (e) e.preventDefault();
+    if (!assignStallForm.stallId) {
+      return toast.error('Please select a parking stall.');
+    }
+    if (!assignStallForm.unitNumber.trim() && !assignStallForm.assignedResident.trim()) {
+      return toast.error('Unit Number or Resident Name is required for assignment.');
+    }
+
+    setParkingStalls((prev) =>
+      prev.map((s) => {
+        if (s.id === assignStallForm.stallId) {
+          const resName = assignStallForm.assignedResident.trim() || `Unit ${assignStallForm.unitNumber.trim()} Resident`;
+          return {
+            ...s,
+            unitNumber: assignStallForm.unitNumber.trim() || 'Unassigned',
+            assignedResident: resName,
+            vehicle: assignStallForm.vehicle.trim() || '—',
+            licensePlate: assignStallForm.licensePlate.trim() || '—',
+            permitTag: assignStallForm.permitTag.trim() || '—',
+            monthlyFee: Number(assignStallForm.monthlyFee) || s.monthlyFee || 150,
+            status: 'Assigned',
+          };
+        }
+        return s;
+      })
+    );
+    setIsAssignStallOpen(false);
+    toast.success(`Stall ${selectedStallForAssign?.spotNumber || ''} assigned!`);
+  };
+
+  const handleRemoveStall = (stallId) => {
+    setParkingStalls((prev) => prev.filter((s) => s.id !== stallId));
+    toast.success('Parking stall removed');
+  };
+
+  const handleReleaseStall = (stallId) => {
+    setParkingStalls((prev) =>
+      prev.map((s) =>
+        s.id === stallId
+          ? {
+              ...s,
+              assignedResident: null,
+              unitNumber: 'Unassigned',
+              vehicle: '—',
+              licensePlate: '—',
+              permitTag: '—',
+              status: 'Vacant · Available',
+            }
+          : s
+      )
+    );
+    toast.success('Stall released and marked vacant');
+  };
+
   const isStepValid = () => {
     if (currentStep === 0) return Boolean(form.name && form.code && form.type);
     if (currentStep === 1) {
@@ -520,6 +656,7 @@ export default function AddProperty() {
         owner: primaryOwner?.name,
         ownerId: primaryOwner?.ownerId,
         units: unitInventory,
+        parkingStalls: parkingStalls,
       };
 
       let createdProp = null;
@@ -550,6 +687,22 @@ export default function AddProperty() {
             : u
         );
         localStorage.setItem('custom_units', JSON.stringify(updatedUnits));
+      }
+
+      // Persist parking stalls for this property
+      if (parkingStalls.length > 0) {
+        const existingStalls = getParkingStalls();
+        const mappedNewStalls = parkingStalls.map((s, idx) => ({
+          ...s,
+          id: `STALL-${Date.now()}-${idx + 1}`,
+          propertyId: realPropId || newProperty.id,
+          propertyName: newProperty.name,
+        }));
+        const combinedStalls = [...mappedNewStalls, ...existingStalls.filter((es) => es.propertyName !== newProperty.name)];
+        saveParkingStalls(combinedStalls);
+        mappedNewStalls.forEach((st) => {
+          apiClient.post('/operations/parking', st).catch(() => {});
+        });
       }
 
       // Associate property with assigned manager in roster
@@ -913,6 +1066,125 @@ export default function AddProperty() {
                     </table>
                   </div>
                 </div>
+
+                {/* Inline Parking Spaces (Create & Assign) */}
+                <div className="border border-gray-200 rounded-2xl p-4 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-sm font-bold text-gray-900">
+                        Parking Spaces ({parkingStalls.length})
+                      </h4>
+                      <p className="text-xs text-gray-500">
+                        Create and assign parking stalls for this property
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        icon={CheckCircle2}
+                        onClick={() => {
+                          if (parkingStalls.length === 0) {
+                            return toast.error('Please add at least one parking spot first.');
+                          }
+                          handleOpenAssign();
+                        }}
+                        className="py-1.5 px-3 text-xs font-semibold"
+                      >
+                        Assign Stall
+                      </Button>
+                      <Button
+                        type="button"
+                        icon={Plus}
+                        onClick={() => setIsAddStallOpen(true)}
+                        className="py-1.5 px-3 text-xs font-semibold shadow-md shadow-indigo-100"
+                      >
+                        + Add New Spot
+                      </Button>
+                    </div>
+                  </div>
+
+                  {parkingStalls.length === 0 ? (
+                    <div className="p-6 text-center border border-dashed border-gray-200 rounded-xl bg-gray-50/50">
+                      <Car className="w-8 h-8 text-gray-400 mx-auto mb-2 opacity-60" />
+                      <p className="text-xs font-semibold text-gray-700">No parking stalls added yet</p>
+                      <p className="text-[11px] text-gray-400 mt-0.5">Click &ldquo;+ Add New Spot&rdquo; to add parking spaces for this property.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-left text-gray-500 border-b border-gray-100">
+                            <th className="py-2">Spot #</th>
+                            <th className="py-2">Spot Type</th>
+                            <th className="py-2">Garage / Lot Location</th>
+                            <th className="py-2">Assigned Unit / Resident</th>
+                            <th className="py-2">Monthly Fee</th>
+                            <th className="py-2 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                          {parkingStalls.map((s) => (
+                            <tr key={s.id} className="hover:bg-gray-50/50 transition-colors">
+                              <td className="py-2 font-bold text-gray-900">{s.spotNumber}</td>
+                              <td className="py-2">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-gray-100 text-gray-700">
+                                  {s.spotType}
+                                </span>
+                              </td>
+                              <td className="py-2 text-gray-600">{s.lotLocation || '—'}</td>
+                              <td className="py-2">
+                                {s.assignedResident || s.unitNumber !== 'Unassigned' ? (
+                                  <span className="inline-flex items-center gap-1.5 font-medium text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-lg text-[11px]">
+                                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                    {s.unitNumber !== 'Unassigned' ? `Unit ${s.unitNumber}` : ''}
+                                    {s.assignedResident && s.assignedResident !== `Unit ${s.unitNumber} Resident` ? ` · ${s.assignedResident}` : ''}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-400 italic text-[11px]">Vacant · Available</span>
+                                )}
+                              </td>
+                              <td className="py-2 font-semibold text-gray-800">
+                                {formatCurrency(s.monthlyFee || 0)}/mo
+                              </td>
+                              <td className="py-2 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  {s.assignedResident || s.unitNumber !== 'Unassigned' ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleReleaseStall(s.id)}
+                                      className="text-xs text-amber-600 hover:text-amber-800 px-2 py-1 hover:bg-amber-50 rounded cursor-pointer transition-colors"
+                                      title="Release stall (mark vacant)"
+                                    >
+                                      Release
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenAssign(s)}
+                                      className="text-xs text-indigo-600 hover:text-indigo-800 px-2 py-1 hover:bg-indigo-50 rounded cursor-pointer font-semibold transition-colors"
+                                      title="Assign this stall"
+                                    >
+                                      Assign
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveStall(s.id)}
+                                    className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded-lg cursor-pointer transition-colors"
+                                    title="Delete stall"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -959,7 +1231,7 @@ export default function AddProperty() {
                       <button type="button" onClick={() => setCurrentStep(1)} className="text-xs text-indigo-600 font-semibold cursor-pointer">Edit</button>
                     </div>
                     <p className="text-xs text-gray-700">Owners: {ownershipRows.map((o) => `${o.name} (${o.share}%)`).join(', ')}</p>
-                    <p className="text-xs text-gray-700 mt-1">Units configured: <strong>{unitInventory.length}</strong></p>
+                    <p className="text-xs text-gray-700 mt-1">Units configured: <strong>{unitInventory.length}</strong> · Parking stalls: <strong>{parkingStalls.length}</strong></p>
                     <p className="text-xs text-gray-700 mt-1">Estimated Equity: <strong>{formatCurrency(estimatedEquity)}</strong></p>
                   </div>
                 </div>
@@ -1150,6 +1422,192 @@ export default function AddProperty() {
             </div>
           </div>
         </div>
+      </Modal>
+
+      {/* ────────────────────────────────────────────── */}
+      {/* ADD NEW PARKING STALL MODAL                 */}
+      {/* ────────────────────────────────────────────── */}
+      <Modal
+        isOpen={isAddStallOpen}
+        onClose={() => setIsAddStallOpen(false)}
+        title="Add New Parking Stall"
+        size="md"
+        bodyClassName="overflow-visible"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setIsAddStallOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleAddStall}>
+              Create Stall
+            </Button>
+          </div>
+        }
+      >
+        <form onSubmit={handleAddStall} className="space-y-4 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input
+              label="Spot Number *"
+              required
+              placeholder="e.g. P-109 or P-EV-03"
+              value={addStallForm.spotNumber}
+              onChange={(e) => setAddStallForm({ ...addStallForm, spotNumber: e.target.value })}
+            />
+            <Select
+              label="Spot Type"
+              value={addStallForm.spotType}
+              options={['Standard Covered', 'EV Charging Level 2', 'Visitor Reserved', 'Handicap Accessible', 'Open Surface']}
+              onChange={(e) => setAddStallForm({ ...addStallForm, spotType: e.target.value })}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input
+              label="Building / Property"
+              value={form.name || form.buildingName || 'This Property'}
+              readOnly
+              className="bg-gray-50 text-gray-600"
+            />
+            <Input
+              label="Garage / Lot Location"
+              placeholder="e.g. Sub-Level 1 (North Garage)"
+              value={addStallForm.lotLocation}
+              onChange={(e) => setAddStallForm({ ...addStallForm, lotLocation: e.target.value })}
+            />
+          </div>
+
+          <div>
+            <Input
+              label="Default Monthly Fee ($)"
+              type="number"
+              placeholder="150"
+              value={addStallForm.monthlyFee}
+              onChange={(e) => setAddStallForm({ ...addStallForm, monthlyFee: e.target.value })}
+            />
+          </div>
+        </form>
+      </Modal>
+
+      {/* ────────────────────────────────────────────── */}
+      {/* ASSIGN PARKING STALL MODAL                     */}
+      {/* ────────────────────────────────────────────── */}
+      <Modal
+        isOpen={isAssignStallOpen}
+        onClose={() => setIsAssignStallOpen(false)}
+        title={`Assign Parking Stall · ${selectedStallForAssign?.spotNumber || ''}`}
+        size="md"
+        bodyClassName="overflow-visible"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setIsAssignStallOpen(false)}>
+              Cancel
+            </Button>
+            <Button icon={CheckCircle2} onClick={handleAssignStallSubmit}>
+              Confirm Assignment
+            </Button>
+          </div>
+        }
+      >
+        <form onSubmit={handleAssignStallSubmit} className="space-y-4 text-xs">
+          {parkingStalls.length > 1 && (
+            <Select
+              label="Select Parking Stall *"
+              value={assignStallForm.stallId}
+              options={parkingStalls.map((s) => ({
+                value: s.id,
+                label: `${s.spotNumber} (${s.spotType}${s.unitNumber !== 'Unassigned' ? ` · Assigned Unit ${s.unitNumber}` : ' · Available'})`,
+              }))}
+              onChange={(e) => {
+                const target = parkingStalls.find((s) => s.id === e.target.value);
+                if (target) {
+                  setSelectedStallForAssign(target);
+                  setAssignStallForm((prev) => ({
+                    ...prev,
+                    stallId: target.id,
+                    unitNumber: target.unitNumber !== 'Unassigned' ? target.unitNumber : (prev.unitNumber || unitInventory[0]?.unitNumber || ''),
+                    assignedResident: target.assignedResident || prev.assignedResident,
+                    monthlyFee: target.monthlyFee || prev.monthlyFee,
+                  }));
+                }
+              }}
+            />
+          )}
+
+          <div className="p-3 bg-indigo-50/70 border border-indigo-100 rounded-xl space-y-1">
+            <div className="flex justify-between items-center">
+              <span className="font-bold text-sm text-indigo-950">Spot: {selectedStallForAssign?.spotNumber}</span>
+              <span className="text-[11px] font-bold text-indigo-700 bg-white px-2 py-0.5 rounded border border-indigo-200">
+                {selectedStallForAssign?.spotType}
+              </span>
+            </div>
+            <p className="text-indigo-800 text-[11px]">Location: {selectedStallForAssign?.lotLocation || 'Sub-Level 1 (North Garage)'}</p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {unitInventory.length > 0 ? (
+              <Select
+                label="Assign to Unit *"
+                value={assignStallForm.unitNumber}
+                options={[
+                  ...unitInventory.map((u) => ({ value: u.unitNumber, label: `Unit ${u.unitNumber}` })),
+                  { value: 'Other / Non-Unit', label: 'Other / Custom Resident' },
+                ]}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setAssignStallForm((prev) => ({
+                    ...prev,
+                    unitNumber: val === 'Other / Non-Unit' ? '' : val,
+                    assignedResident: val !== 'Other / Non-Unit' ? (prev.assignedResident || `Unit ${val} Resident`) : '',
+                  }));
+                }}
+              />
+            ) : (
+              <Input
+                label="Unit Number *"
+                placeholder="e.g. A-101"
+                value={assignStallForm.unitNumber}
+                onChange={(e) => setAssignStallForm({ ...assignStallForm, unitNumber: e.target.value })}
+              />
+            )}
+
+            <Input
+              label="Resident Name"
+              placeholder="e.g. Jordan Hayes"
+              value={assignStallForm.assignedResident}
+              onChange={(e) => setAssignStallForm({ ...assignStallForm, assignedResident: e.target.value })}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input
+              label="Vehicle (Make, Model, Color)"
+              placeholder="e.g. Tesla Model 3 (White)"
+              value={assignStallForm.vehicle}
+              onChange={(e) => setAssignStallForm({ ...assignStallForm, vehicle: e.target.value })}
+            />
+            <Input
+              label="License Plate Number"
+              placeholder="e.g. NY · KJH-9021"
+              value={assignStallForm.licensePlate}
+              onChange={(e) => setAssignStallForm({ ...assignStallForm, licensePlate: e.target.value })}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input
+              label="Parking Permit Tag #"
+              placeholder="e.g. PRM-2026-001"
+              value={assignStallForm.permitTag}
+              onChange={(e) => setAssignStallForm({ ...assignStallForm, permitTag: e.target.value })}
+            />
+            <Input
+              label="Monthly Parking Fee ($/mo)"
+              type="number"
+              value={assignStallForm.monthlyFee}
+              onChange={(e) => setAssignStallForm({ ...assignStallForm, monthlyFee: e.target.value })}
+            />
+          </div>
+        </form>
       </Modal>
     </div>
   );

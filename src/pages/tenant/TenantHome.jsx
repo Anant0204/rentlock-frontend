@@ -20,24 +20,40 @@ export default function TenantHome() {
   const [state, setState] = useState(() => getTenantPortalState());
 
   useEffect(() => {
-    apiClient.get('/portal/tenant/balance').then((liveBal) => {
-      if (liveBal) {
-        setState((prev) => ({
-          ...prev,
-          household: {
-            ...prev?.household,
-            unitLabel: liveBal?.tenant ? `Unit ${liveBal.tenant.unitNumber} · ${liveBal.tenant.propertyName}` : (prev?.household?.unitLabel || 'Assigned Unit'),
-            monthlyRent: Number(liveBal?.monthlyRent ?? prev?.household?.monthlyRent ?? 0),
-          },
-          billing: {
-            ...prev?.billing,
-            monthlyRent: Number(liveBal?.monthlyRent ?? prev?.billing?.monthlyRent ?? 0),
-            balanceDue: Number(liveBal?.currentBalanceDue || 0),
-          },
-        }));
+    const curEmail = (user?.email || '').trim().toLowerCase();
+    const curName = (user?.name || '').trim().toLowerCase();
+    const query = curEmail ? `?email=${encodeURIComponent(curEmail)}` : '';
+
+    apiClient.get(`/portal/tenant/balance${query}`).then((liveBal) => {
+      if (liveBal && liveBal.tenant) {
+        const resEmail = (liveBal.tenant.email || '').trim().toLowerCase();
+        const resName = (liveBal.tenant.name || '').trim().toLowerCase();
+
+        const matchesUser =
+          (!curEmail && !curName) ||
+          (curEmail && resEmail && curEmail === resEmail) ||
+          (curName && resName && curName === resName);
+
+        if (matchesUser) {
+          setState((prev) => ({
+            ...prev,
+            household: {
+              ...prev?.household,
+              unitLabel: liveBal.tenant.propertyName && liveBal.tenant.unitNumber
+                ? `${liveBal.tenant.propertyName} · ${liveBal.tenant.unitNumber}`
+                : prev?.household?.unitLabel || 'Assigned Unit',
+              monthlyRent: Number(liveBal?.monthlyRent ?? prev?.household?.monthlyRent ?? 0),
+            },
+            billing: {
+              ...prev?.billing,
+              monthlyRent: Number(liveBal?.monthlyRent ?? prev?.billing?.monthlyRent ?? 0),
+              balanceDue: Number(liveBal?.currentBalanceDue || 0),
+            },
+          }));
+        }
       }
     }).catch(() => {});
-  }, []);
+  }, [user]);
 
   const balance = computeBalanceSummary(state);
   const openCount = getOpenWorkOrderCount(state);

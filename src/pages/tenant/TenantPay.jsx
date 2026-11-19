@@ -8,6 +8,7 @@ import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import Select from '../../components/ui/Select';
 import Modal from '../../components/ui/Modal';
+import { useAuth } from '../../context/AuthContext';
 import { formatUsd } from '../../utils/formatters';
 import {
   getTenantPortalState,
@@ -18,29 +19,44 @@ import {
 } from '../../data/tenantPortalData';
 
 export default function TenantPay() {
+  const { user } = useAuth();
   const [portalState, setPortalState] = useState(() => getTenantPortalState());
 
   useEffect(() => {
-    apiClient.get('/portal/tenant/balance').then((liveBal) => {
-      if (liveBal) {
-        setPortalState((prev) => ({
-          ...prev,
-          household: {
-            ...prev?.household,
-            monthlyRent: Number(liveBal?.monthlyRent ?? prev?.household?.monthlyRent ?? 0),
-          },
-          billing: {
-            ...prev?.billing,
-            monthlyRent: Number(liveBal?.monthlyRent ?? prev?.billing?.monthlyRent ?? 0),
-            balanceDue: Number(liveBal?.currentBalanceDue || 0),
-          },
-        }));
-        if (liveBal.currentBalanceDue > 0) {
-          setAmountInput(liveBal.currentBalanceDue.toFixed(2));
+    const curEmail = (user?.email || '').trim().toLowerCase();
+    const curName = (user?.name || '').trim().toLowerCase();
+    const query = curEmail ? `?email=${encodeURIComponent(curEmail)}` : '';
+
+    apiClient.get(`/portal/tenant/balance${query}`).then((liveBal) => {
+      if (liveBal && liveBal.tenant) {
+        const resEmail = (liveBal.tenant.email || '').trim().toLowerCase();
+        const resName = (liveBal.tenant.name || '').trim().toLowerCase();
+
+        const matchesUser =
+          (!curEmail && !curName) ||
+          (curEmail && resEmail && curEmail === resEmail) ||
+          (curName && resName && curName === resName);
+
+        if (matchesUser) {
+          setPortalState((prev) => ({
+            ...prev,
+            household: {
+              ...prev?.household,
+              monthlyRent: Number(liveBal?.monthlyRent ?? prev?.household?.monthlyRent ?? 0),
+            },
+            billing: {
+              ...prev?.billing,
+              monthlyRent: Number(liveBal?.monthlyRent ?? prev?.billing?.monthlyRent ?? 0),
+              balanceDue: Number(liveBal?.currentBalanceDue || 0),
+            },
+          }));
+          if (liveBal.currentBalanceDue > 0) {
+            setAmountInput(liveBal.currentBalanceDue.toFixed(2));
+          }
         }
       }
     }).catch(() => {});
-  }, []);
+  }, [user]);
   const balance = useMemo(() => computeBalanceSummary(portalState), [portalState]);
 
   const [amountInput, setAmountInput] = useState(() =>

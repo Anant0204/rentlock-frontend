@@ -38,31 +38,52 @@ export default function ManagerTenants() {
     apiClient.get('/tenants?limit=100').then((res) => {
       const liveTenants = res?.items || res;
       if (Array.isArray(liveTenants)) {
-        const allowedPropIds = new Set(local.properties.map((p) => String(p.id)));
-        const allowedPropNames = new Set(local.properties.map((p) => (p.name || '').trim().toLowerCase()));
+        const allowedPropIds = new Set();
+        const allowedPropNames = new Set();
+        (local.properties || []).forEach((p) => {
+          if (p.id) allowedPropIds.add(String(p.id));
+          if (p.originalId) allowedPropIds.add(String(p.originalId));
+          if (p.numericId) allowedPropIds.add(String(p.numericId));
+          if (p.name) allowedPropNames.add(p.name.trim().toLowerCase());
+        });
 
         const scopedLiveTenants = liveTenants.filter(
           (t) =>
-            allowedPropIds.has(String(t.propertyId)) ||
+            allowedPropIds.size === 0 ||
+            allowedPropIds.has(String(t.propertyId || '')) ||
             allowedPropNames.has((t.propertyName || '').trim().toLowerCase())
         );
 
+        const formattedLive = scopedLiveTenants.map((t) => ({
+          id: String(t.id),
+          name: t.name,
+          email: t.email,
+          phone: t.mobile || t.phone,
+          propertyId: String(t.propertyId || ''),
+          propertyName: t.propertyName || '',
+          unit: t.unitNumber || 'Unit',
+          leaseStatus: t.status || 'Active',
+          leaseTerm: `${t.moveInDate ? t.moveInDate.slice(0, 10) : '2025-01-01'} - ${t.leaseEnd ? t.leaseEnd.slice(0, 10) : '2026-12-31'}`,
+          monthlyRent: Number(t.monthlyRent || t.rent || 0),
+          balanceDue: Number(t.dueAmount || 0),
+          privateNotes: t.privateNotes || '',
+        }));
+
+        // Merge backend live tenants with local tenants (avoiding duplicates by email or id)
+        const liveEmails = new Set(formattedLive.map((t) => (t.email || '').trim().toLowerCase()).filter(Boolean));
+        const liveIds = new Set(formattedLive.map((t) => String(t.id)));
+
+        const preservedLocal = (local.tenants || []).filter(
+          (lt) =>
+            !liveEmails.has((lt.email || '').trim().toLowerCase()) &&
+            !liveIds.has(String(lt.id))
+        );
+
+        const mergedTenants = [...preservedLocal, ...formattedLive];
+
         setState((prev) => ({
           ...prev,
-          tenants: scopedLiveTenants.map((t) => ({
-            id: String(t.id),
-            name: t.name,
-            email: t.email,
-            phone: t.mobile || t.phone,
-            propertyId: String(t.propertyId || ''),
-            propertyName: t.propertyName || '',
-            unit: t.unitNumber || 'Unit',
-            leaseStatus: t.status || 'Active',
-            leaseTerm: `${t.moveInDate ? t.moveInDate.slice(0, 10) : '2025-01-01'} - ${t.leaseEnd ? t.leaseEnd.slice(0, 10) : '2026-12-31'}`,
-            monthlyRent: Number(t.monthlyRent || t.rent || 0),
-            balanceDue: Number(t.dueAmount || 0),
-            privateNotes: t.privateNotes || '',
-          })),
+          tenants: mergedTenants,
         }));
       }
     }).catch(() => {});

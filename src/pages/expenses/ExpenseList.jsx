@@ -141,9 +141,24 @@ export default function ExpenseList() {
         <div className="flex flex-wrap items-center gap-3 justify-between">
           <h3 className="text-base font-bold text-gray-900">Vendor Bills & Property Allocations</h3>
           <div className="flex flex-wrap gap-3">
-            <Select value={propertyFilter} options={['All', ...properties.map((p) => p.name)]} onChange={(e) => setPropertyFilter(e.target.value)} />
-            <Select value={categoryFilter} options={['All', ...EXPENSE_CATEGORIES]} onChange={(e) => setCategoryFilter(e.target.value)} />
-            <Select value={paymentFilter} options={['All', 'Paid', 'Unpaid Bill', 'Partial', 'Voided']} onChange={(e) => setPaymentFilter(e.target.value)} />
+            <Select
+              className="min-w-[170px]"
+              value={propertyFilter}
+              options={['All', ...properties.map((p) => p.name)]}
+              onChange={(e) => setPropertyFilter(e.target.value)}
+            />
+            <Select
+              className="min-w-[220px]"
+              value={categoryFilter}
+              options={['All', ...EXPENSE_CATEGORIES]}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+            />
+            <Select
+              className="min-w-[150px]"
+              value={paymentFilter}
+              options={['All', 'Paid', 'Unpaid Bill', 'Partial', 'Voided']}
+              onChange={(e) => setPaymentFilter(e.target.value)}
+            />
           </div>
         </div>
 
