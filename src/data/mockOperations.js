@@ -351,13 +351,20 @@ export const saveBroadcasts = (broadcasts) => {
 };
 
 export const sendBroadcast = (data) => {
-  apiClient.post('/operations/communications', data).catch(() => {});
+  const backendPayload = {
+    title: data.title,
+    content: data.body || data.content || '',
+    targetAudience: data.audience || data.targetAudience || 'All Building Residents',
+    isUrgent: Boolean(data.isEmergency || data.isUrgent),
+    propertyId: data.propertyId ? Number(data.propertyId) : undefined,
+  };
+  apiClient.post('/operations/communications', backendPayload).catch(() => {});
   const current = getBroadcasts();
   const nextId = `BC-${Date.now().toString().slice(-3)}`;
   const newBroadcast = {
     id: nextId,
     sentAt: 'Just now',
-    sentBy: 'Robert King (Admin)',
+    sentBy: data.sentBy || 'Robert King (Admin)',
     deliveredCount: 12,
     totalRecipients: 12,
     deliveryRate: '100%',
