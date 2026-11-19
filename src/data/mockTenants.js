@@ -37,6 +37,9 @@ export const addTenant = (tenant) => {
   // 2. Update reactive local cache
   customItems.push(newTenant);
   localStorage.setItem('custom_tenants', JSON.stringify(customItems));
+  try {
+    window.dispatchEvent(new Event('rentlock_tenants_changed'));
+  } catch {}
   return newTenant;
 };
 
@@ -54,6 +57,9 @@ export const deleteTenant = (id) => {
     const customItems = JSON.parse(saved);
     const updated = customItems.filter((p) => p.id !== id);
     localStorage.setItem('custom_tenants', JSON.stringify(updated));
+    try {
+      window.dispatchEvent(new Event('rentlock_tenants_changed'));
+    } catch {}
   }
 };
 
@@ -67,6 +73,9 @@ export const saveTenantLocal = (tenant) => {
     customItems.push(tenant);
   }
   localStorage.setItem('custom_tenants', JSON.stringify(customItems));
+  try {
+    window.dispatchEvent(new Event('rentlock_tenants_changed'));
+  } catch {}
 };
 
 export const updateTenant = (id, data) => {

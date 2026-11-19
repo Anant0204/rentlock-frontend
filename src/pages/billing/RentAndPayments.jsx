@@ -2,46 +2,55 @@ import { useSearchParams } from 'react-router-dom';
 import PageHeader from '../../components/shared/PageHeader';
 import Tabs from '../../components/ui/Tabs';
 import Invoices from './Invoices';
-import Collections from './Collections';
-import PaymentLedger from './PaymentLedger';
 import Receipts from './Receipts';
 import SecurityDeposits from './SecurityDeposits';
 
 const BILLING_TABS = [
-  { id: 'invoices', label: 'Invoices' },
-  { id: 'collections', label: 'Collections & Aging' },
-  { id: 'ledger', label: 'Payment Ledger' },
-  { id: 'receipts', label: 'Receipts' },
+  { id: 'rent', label: 'Rent Roll & Collections' },
+  { id: 'receipts', label: 'Payment History & Receipts' },
   { id: 'deposits', label: 'Security Deposits' },
 ];
-
-const VALID_TAB_IDS = new Set(BILLING_TABS.map((t) => t.id));
 
 export default function RentAndPayments() {
   const [searchParams, setSearchParams] = useSearchParams();
   const paramTab = searchParams.get('tab');
-  const activeTab = VALID_TAB_IDS.has(paramTab) ? paramTab : 'invoices';
+
+  // Backward compatibility mapping for old links
+  let activeTab = 'rent';
+  if (paramTab === 'receipts' || paramTab === 'ledger') {
+    activeTab = 'receipts';
+  } else if (paramTab === 'deposits') {
+    activeTab = 'deposits';
+  } else {
+    activeTab = 'rent';
+  }
+
+  const handleTabChange = (tabId) => {
+    setSearchParams({ tab: tabId });
+  };
 
   return (
-    <div className="space-y-6 pb-10">
+    <div className="space-y-6 pb-12">
       <PageHeader
         title="Rent & Payments"
-        subtitle="Manage U.S. invoices, rent collections & aging, payment ledger, settlement receipts, and trust security deposits."
+        subtitle="Manage tenant rent collections, due balances, and payment records."
         breadcrumbs={[{ label: 'Dashboard', path: '/dashboard' }, { label: 'Rent & Payments' }]}
       />
 
       <Tabs
         tabs={BILLING_TABS}
         activeTab={activeTab}
-        onChange={(tabId) => setSearchParams({ tab: tabId })}
+        onChange={handleTabChange}
       />
 
-      {activeTab === 'invoices' && <Invoices embedded />}
-      {activeTab === 'collections' && <Collections embedded />}
-      {activeTab === 'ledger' && <PaymentLedger embedded />}
+      {activeTab === 'rent' && (
+        <Invoices
+          embedded
+          initialOpenPayment={paramTab === 'collections'}
+        />
+      )}
       {activeTab === 'receipts' && <Receipts embedded />}
       {activeTab === 'deposits' && <SecurityDeposits embedded />}
     </div>
   );
 }
-

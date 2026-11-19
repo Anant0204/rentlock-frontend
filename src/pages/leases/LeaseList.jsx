@@ -20,13 +20,50 @@ export default function LeaseList() {
   const [leases, setLeases] = useState(() => getLeases());
 
   useEffect(() => {
-    apiClient.get('/leases?limit=100').then((res) => {
-      const items = res?.items || res;
-      if (Array.isArray(items)) {
-        setLeases(items);
-        localStorage.setItem('custom_leases', JSON.stringify(items));
+    const refreshLeases = () => {
+      const local = getLeases();
+      if (Array.isArray(local) && local.length > 0) {
+        setLeases(local);
       }
-    }).catch(() => {});
+      apiClient
+        .get('/leases?limit=100')
+        .then((res) => {
+          const items = res?.items || res;
+          if (Array.isArray(items) && items.length > 0) {
+            const localItems = getLeases();
+            const combined = [...items];
+            localItems.forEach((l) => {
+              if (
+                !combined.some(
+                  (item) =>
+                    String(item.id) === String(l.id) ||
+                    (item.leaseNumber && item.leaseNumber === l.leaseNumber)
+                )
+              ) {
+                combined.push(l);
+              }
+            });
+            setLeases(combined);
+            localStorage.setItem('custom_leases', JSON.stringify(combined));
+          }
+        })
+        .catch(() => {});
+    };
+
+    refreshLeases();
+
+    const handleSync = () => {
+      refreshLeases();
+    };
+
+    window.addEventListener('storage', handleSync);
+    window.addEventListener('focus', handleSync);
+    window.addEventListener('rentlock_leases_changed', handleSync);
+    return () => {
+      window.removeEventListener('storage', handleSync);
+      window.removeEventListener('focus', handleSync);
+      window.removeEventListener('rentlock_leases_changed', handleSync);
+    };
   }, []);
 
   const filteredData = useMemo(() => {

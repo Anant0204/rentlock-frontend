@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Users, Calendar, DollarSign, FileText, CheckCircle2, AlertTriangle,
@@ -35,30 +35,69 @@ export default function CreateLease() {
 
   const [propertiesList, setPropertiesList] = useState(() => getProperties().filter((p) => !p.archived));
   const [unitsList, setUnitsList] = useState(() => getUnits().filter((u) => !u.archived));
-  const tenants = useMemo(() => getTenants(), []);
+  const [tenantsList, setTenantsList] = useState(() => getTenants().filter((t) => t.status !== 'Archived' && t.status !== 'Exited'));
+
+  const refreshTenants = useCallback(() => {
+    const local = getTenants().filter((t) => t.status !== 'Archived' && t.status !== 'Exited');
+    setTenantsList(local);
+
+    apiClient.get('/tenants?limit=100').then((res) => {
+      const items = res?.items || res;
+      if (Array.isArray(items)) {
+        const valid = items.filter((t) => t.status !== 'Archived' && t.status !== 'Exited');
+        setTenantsList(valid);
+        try {
+          localStorage.setItem('custom_tenants', JSON.stringify(items));
+        } catch {}
+      }
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
+    refreshTenants();
+
     apiClient.get('/properties?limit=100').then((res) => {
       const items = res?.items || res;
       if (Array.isArray(items) && items.length > 0) {
-        setPropertiesList(items);
+        setPropertiesList(items.filter((p) => !p.archived));
       }
     }).catch(() => {});
 
     apiClient.get('/units?limit=100').then((res) => {
       const items = res?.items || res;
       if (Array.isArray(items) && items.length > 0) {
-        setUnitsList(items);
+        setUnitsList(items.filter((u) => !u.archived));
       }
     }).catch(() => {});
-  }, []);
+
+    const handleSync = () => {
+      refreshTenants();
+    };
+
+    window.addEventListener('storage', handleSync);
+    window.addEventListener('focus', handleSync);
+    window.addEventListener('rentlock_tenants_changed', handleSync);
+    return () => {
+      window.removeEventListener('storage', handleSync);
+      window.removeEventListener('focus', handleSync);
+      window.removeEventListener('rentlock_tenants_changed', handleSync);
+    };
+  }, [refreshTenants]);
 
   const properties = propertiesList;
   const units = unitsList;
 
   const initialProperty = incomingApplicant?.propertyName || properties[0]?.name || 'Sunrise Residency';
-  const propertyUnits = useMemo(() => units.filter((u) => u.propertyName === initialProperty), [units, initialProperty]);
+  const propertyUnits = useMemo(() => units.filter((u) => {
+    return u.propertyName === initialProperty || u.property?.name === initialProperty;
+  }), [units, initialProperty]);
   const initialUnit = incomingApplicant?.unitNumber || propertyUnits[0]?.unitNumber || 'B-101';
+
+  // Find initial tenant belonging to this initial property and unit
+  const initialMatchingTenant = tenantsList.find((t) =>
+    (t.propertyName && t.propertyName.toLowerCase() === initialProperty.toLowerCase()) &&
+    (t.unitNumber && String(t.unitNumber).trim().toLowerCase() === String(initialUnit).trim().toLowerCase())
+  ) || tenantsList.find((t) => t.propertyName && t.propertyName.toLowerCase() === initialProperty.toLowerCase());
 
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({
@@ -66,9 +105,10 @@ export default function CreateLease() {
     unitNumber: initialUnit,
     coSigners: [
       {
-        name: incomingApplicant?.applicantName || tenants[0]?.name || 'Jordan Alvarez',
+        name: incomingApplicant?.applicantName || initialMatchingTenant?.name || '',
         role: 'Primary Tenant',
-        email: incomingApplicant?.email || tenants[0]?.email || 'j.alvarez@example.com',
+        email: incomingApplicant?.email || initialMatchingTenant?.email || '',
+        tenantId: initialMatchingTenant?.id,
       },
       { name: 'Robert King', role: 'Landlord / Agent', email: 'robert.king@rentlock.com' },
     ],
@@ -78,8 +118,8 @@ export default function CreateLease() {
     moveInDate: incomingApplicant?.proposedMoveIn || '2026-12-01',
     noticeDays: '60',
     reminders: { d90: true, d60: true, d30: true, d7: true },
-    monthlyRent: String(incomingApplicant?.targetRent || propertyUnits.find((u) => u.unitNumber === initialUnit)?.rent || 1750),
-    deposit: String(incomingApplicant?.targetRent || propertyUnits.find((u) => u.unitNumber === initialUnit)?.deposit || 1750),
+    monthlyRent: String(incomingApplicant?.targetRent || propertyUnits.find((u) => u.unitNumber === initialUnit)?.rent || initialMatchingTenant?.rent || 1750),
+    deposit: String(incomingApplicant?.targetRent || propertyUnits.find((u) => u.unitNumber === initialUnit)?.deposit || initialMatchingTenant?.deposit || 1750),
     dueDay: '1st of Month',
     firstPaymentDate: incomingApplicant?.proposedMoveIn || '2026-12-01',
     recurringAddons: [{ label: 'Trash & Water Utility', amount: 45 }],
@@ -98,10 +138,46 @@ export default function CreateLease() {
     addenda: ['Lead-Based Paint Disclosure (Pre-1978)', 'Building Rules & Noise Policy'],
   });
 
-  const activeUnitsForProp = useMemo(
-    () => units.filter((u) => u.propertyName === form.propertyName),
-    [units, form.propertyName]
-  );
+  const activeUnitsForProp = useMemo(() => {
+    const matchedProp = properties.find((p) => p.name.toLowerCase() === form.propertyName.toLowerCase());
+    const propId = matchedProp ? matchedProp.id : null;
+    return units.filter((u) => {
+      const matchName = u.propertyName && u.propertyName.toLowerCase() === form.propertyName.toLowerCase();
+      const matchPropObj = u.property?.name && u.property.name.toLowerCase() === form.propertyName.toLowerCase();
+      const matchId = propId && (u.propertyId === propId || String(u.propertyId) === String(propId));
+      return matchName || matchPropObj || matchId;
+    });
+  }, [units, form.propertyName, properties]);
+
+  // Filter tenants belonging specifically to the selected property and unit
+  const relatedTenants = useMemo(() => {
+    if (!form.propertyName) return [];
+    const matchedProp = properties.find((p) => p.name.toLowerCase() === form.propertyName.toLowerCase());
+    const propId = matchedProp ? matchedProp.id : null;
+
+    // 1. Tenants belonging to this property
+    const forProp = tenantsList.filter((t) => {
+      const pNameMatch = t.propertyName && t.propertyName.toLowerCase() === form.propertyName.toLowerCase();
+      const pIdMatch = propId && (String(t.propertyId) === String(propId));
+      return pNameMatch || pIdMatch;
+    });
+
+    if (!form.unitNumber) return forProp;
+
+    // 2. Tenants belonging specifically to this unit
+    const forUnit = forProp.filter((t) => {
+      const uNumMatch = t.unitNumber && String(t.unitNumber).trim().toLowerCase() === String(form.unitNumber).trim().toLowerCase();
+      return uNumMatch;
+    });
+
+    // If there are tenants linked to this specific unit, put them first, then other tenants of this property
+    if (forUnit.length > 0) {
+      const others = forProp.filter((t) => !forUnit.some((u) => String(u.id) === String(t.id)));
+      return [...forUnit, ...others];
+    }
+
+    return forProp;
+  }, [tenantsList, form.propertyName, form.unitNumber, properties]);
 
   const recurringAddonsTotal = useMemo(
     () => form.recurringAddons.reduce((sum, a) => sum + (Number(a.amount) || 0), 0),
@@ -130,16 +206,113 @@ export default function CreateLease() {
     return rent + dep + recurringAddonsTotal;
   }, [form.monthlyRent, form.deposit, recurringAddonsTotal]);
 
+  // Auto-sync selected primary tenant whenever relatedTenants changes (e.g. tenant added/deleted or property/unit changed)
+  useEffect(() => {
+    const curName = form.coSigners[0]?.name;
+    const exists = relatedTenants.find((t) => t.name === curName);
+
+    if (exists) {
+      if (form.coSigners[0]?.email !== exists.email || form.coSigners[0]?.tenantId !== exists.id) {
+        setForm((prev) => ({
+          ...prev,
+          coSigners: prev.coSigners.map((c, i) =>
+            i === 0
+              ? {
+                  ...c,
+                  name: exists.name,
+                  role: 'Primary Tenant',
+                  email: exists.email || '',
+                  tenantId: exists.id,
+                }
+              : c
+          ),
+        }));
+      }
+    } else {
+      if (relatedTenants.length > 0) {
+        const first = relatedTenants[0];
+        setForm((prev) => ({
+          ...prev,
+          coSigners: prev.coSigners.map((c, i) =>
+            i === 0
+              ? {
+                  ...c,
+                  name: first.name,
+                  role: 'Primary Tenant',
+                  email: first.email || '',
+                  tenantId: first.id,
+                }
+              : c
+          ),
+          monthlyRent: first.rent || first.monthlyRent ? String(first.rent || first.monthlyRent) : prev.monthlyRent,
+          deposit: first.deposit ? String(first.deposit) : prev.deposit,
+        }));
+      } else {
+        setForm((prev) => ({
+          ...prev,
+          coSigners: prev.coSigners.map((c, i) =>
+            i === 0
+              ? {
+                  ...c,
+                  name: '',
+                  role: 'Primary Tenant',
+                  email: '',
+                  tenantId: undefined,
+                }
+              : c
+          ),
+        }));
+      }
+    }
+  }, [relatedTenants]);
+
+  const selectedTenant = useMemo(() => {
+    const curName = form.coSigners[0]?.name;
+    if (!curName) return null;
+    return relatedTenants.find((t) => t.name === curName) || tenantsList.find((t) => t.name === curName) || null;
+  }, [form.coSigners, relatedTenants, tenantsList]);
+
   const handlePropertySwitch = (propName) => {
     const matchedProp = properties.find((p) => p.name === propName);
-    const propUnits = units.filter((u) => u.propertyName === propName);
+    const propUnits = units.filter((u) => {
+      const matchName = u.propertyName && u.propertyName.toLowerCase() === propName.toLowerCase();
+      const matchPropObj = u.property?.name && u.property.name.toLowerCase() === propName.toLowerCase();
+      const matchId = matchedProp && (u.propertyId === matchedProp.id || String(u.propertyId) === String(matchedProp.id));
+      return matchName || matchPropObj || matchId;
+    });
     const nextUnit = propUnits[0];
-    const newRent = nextUnit?.rent ? String(nextUnit.rent) : form.monthlyRent;
+
+    // Find tenants belonging to this new property
+    const newPropTenants = tenantsList.filter((t) => {
+      if (t.status === 'Archived' || t.status === 'Exited') return false;
+      const pNameMatch = t.propertyName && t.propertyName.toLowerCase() === propName.toLowerCase();
+      const pIdMatch = matchedProp && (String(t.propertyId) === String(matchedProp.id));
+      return pNameMatch || pIdMatch;
+    });
+
+    // Find tenant matching nextUnit if any
+    const unitTenant = newPropTenants.find((t) =>
+      t.unitNumber && nextUnit && String(t.unitNumber).trim().toLowerCase() === String(nextUnit.unitNumber).trim().toLowerCase()
+    ) || newPropTenants[0];
+
+    const newRent = nextUnit?.rent ? String(nextUnit.rent) : (unitTenant?.rent ? String(unitTenant.rent) : form.monthlyRent);
     const newDep = nextUnit?.deposit ? String(nextUnit.deposit) : newRent;
+
     setForm((prev) => ({
       ...prev,
       propertyName: propName,
       unitNumber: nextUnit?.unitNumber || '',
+      coSigners: prev.coSigners.map((c, i) =>
+        i === 0
+          ? {
+              ...c,
+              name: unitTenant ? unitTenant.name : '',
+              role: 'Primary Tenant',
+              email: unitTenant ? unitTenant.email : '',
+              tenantId: unitTenant ? unitTenant.id : undefined,
+            }
+          : c
+      ),
       stateJurisdiction: matchedProp?.state || prev.stateJurisdiction,
       templateVersion: `${matchedProp?.state || 'NY'} Standard ${matchedProp?.type === 'Commercial' ? 'Commercial NNN' : 'Residential'} Lease v4.2`,
       monthlyRent: newRent,
@@ -148,34 +321,75 @@ export default function CreateLease() {
   };
 
   const handleUnitSwitch = (uNum) => {
-    const matched = activeUnitsForProp.find((u) => u.unitNumber === uNum);
-    const newRent = matched?.rent ? String(matched.rent) : form.monthlyRent;
-    const newDep = matched?.deposit ? String(matched.deposit) : newRent;
+    const matchedUnit = activeUnitsForProp.find((u) => u.unitNumber === uNum);
+
+    // Look for tenant specifically in this unit
+    const unitTenant = relatedTenants.find((t) =>
+      t.unitNumber && String(t.unitNumber).trim().toLowerCase() === String(uNum).trim().toLowerCase()
+    ) || relatedTenants[0];
+
+    const newRent = matchedUnit?.rent ? String(matchedUnit.rent) : (unitTenant?.rent ? String(unitTenant.rent) : form.monthlyRent);
+    const newDep = matchedUnit?.deposit ? String(matchedUnit.deposit) : newRent;
+
     setForm((prev) => ({
       ...prev,
       unitNumber: uNum,
+      coSigners: prev.coSigners.map((c, i) =>
+        i === 0
+          ? {
+              ...c,
+              name: unitTenant ? unitTenant.name : '',
+              role: 'Primary Tenant',
+              email: unitTenant ? unitTenant.email : '',
+              tenantId: unitTenant ? unitTenant.id : undefined,
+            }
+          : c
+      ),
       monthlyRent: newRent,
       deposit: newDep,
     }));
   };
 
-  const addCoSigner = () => {
-    setForm((prev) => ({
-      ...prev,
-      coSigners: [...prev.coSigners, { name: '', role: 'Co-Signer', email: '' }],
-    }));
+  const handleSelectTenant = (val) => {
+    if (!val) {
+      setForm((prev) => ({
+        ...prev,
+        coSigners: prev.coSigners.map((c, i) =>
+          i === 0 ? { ...c, name: '', role: 'Primary Tenant', email: '', tenantId: undefined } : c
+        ),
+      }));
+      return;
+    }
+
+    const matched = relatedTenants.find((t) => t.name === val) || tenantsList.find((t) => t.name === val);
+    if (matched) {
+      setForm((prev) => ({
+        ...prev,
+        coSigners: prev.coSigners.map((c, i) =>
+          i === 0
+            ? {
+                ...c,
+                name: matched.name,
+                role: 'Primary Tenant',
+                email: matched.email || '',
+                tenantId: matched.id,
+              }
+            : c
+        ),
+        monthlyRent: matched.rent || matched.monthlyRent ? String(matched.rent || matched.monthlyRent) : prev.monthlyRent,
+        deposit: matched.deposit ? String(matched.deposit) : prev.deposit,
+      }));
+    }
   };
 
-  const updateCoSigner = (idx, field, val) => {
-    setForm((prev) => ({
-      ...prev,
-      coSigners: prev.coSigners.map((c, i) => (i === idx ? { ...c, [field]: val } : c)),
-    }));
-  };
-
-  const removeCoSigner = (idx) => {
-    if (form.coSigners.length <= 1) return;
-    setForm((prev) => ({ ...prev, coSigners: prev.coSigners.filter((_, i) => i !== idx) }));
+  const handleContinue = () => {
+    if (step === 1) {
+      if (!form.coSigners[0]?.name?.trim()) {
+        toast.error('Please select a Tenant from the dropdown before continuing.');
+        return;
+      }
+    }
+    setStep((s) => Math.min(4, s + 1));
   };
 
   const addAddon = () => {
@@ -295,14 +509,25 @@ export default function CreateLease() {
     if (form.reminders?.d30) activeReminders.push(30);
     if (form.reminders?.d7) activeReminders.push(7);
 
+    const targetTenant =
+      selectedTenant ||
+      relatedTenants.find((t) => t.name === primarySigner.name.trim()) ||
+      tenantsList.find((t) => t.name === primarySigner.name.trim());
+    const realTenantId = primarySigner.tenantId || targetTenant?.id || 1;
+    const realUnit =
+      activeUnitsForProp.find((u) => u.unitNumber === form.unitNumber) ||
+      units.find((u) => u.propertyName === form.propertyName && u.unitNumber === form.unitNumber);
+
     updateLease(nextId, {
       id: nextId,
-      tenantId: 90 + nextId,
+      leaseNumber: `LSE-2026-${String(nextId).padStart(3, '0')}`,
+      tenantId: realTenantId,
       tenantName: primarySigner.name.trim(),
+      tenantEmail: primarySigner.email || targetTenant?.email || '',
       coSigners: form.coSigners,
       propertyId: matchedProp?.id || 1,
       propertyName: form.propertyName,
-      unitId: matchedUnit?.id || 1,
+      unitId: realUnit?.id || matchedUnit?.id || 1,
       unitNumber: form.unitNumber || 'TBD',
       leaseType: form.leaseType,
       startDate: form.startDate,
@@ -311,7 +536,9 @@ export default function CreateLease() {
       noticeDays: Number(form.noticeDays) || 60,
       reminders: activeReminders,
       monthlyRent: Number(form.monthlyRent) || 0,
+      rent: Number(form.monthlyRent) || 0,
       deposit: Number(form.deposit) || 0,
+      securityDeposit: Number(form.deposit) || 0,
       dueDate: parseInt(form.dueDay, 10) || 1,
       firstPaymentDate: form.firstPaymentDate,
       recurringAddons: form.recurringAddons,
@@ -380,44 +607,84 @@ export default function CreateLease() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         <Card className="lg:col-span-8 p-6 md:p-8 space-y-6">
           {step === 1 && (
-            <div className="space-y-5">
+            <div className="space-y-6">
               <div className="flex items-center gap-2 text-indigo-700 font-bold text-sm">
-                <Users className="w-4 h-4" /> Step 1: Property, Unit & Lease Signers
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Select label="Property" value={form.propertyName} options={properties.map((p) => p.name)} onChange={(e) => handlePropertySwitch(e.target.value)} />
-                <Select label="Unit Number" value={form.unitNumber} options={activeUnitsForProp.map((u) => u.unitNumber)} onChange={(e) => handleUnitSwitch(e.target.value)} />
+                <Users className="w-4 h-4" /> Step 1: Property, Unit & Tenant Selection
               </div>
 
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500">Participants & Co-Signers</h4>
-                  <Button size="sm" variant="secondary" icon={Plus} onClick={addCoSigner}>Add Signer</Button>
-                </div>
-                {form.coSigners.map((signer, idx) => (
-                  <div key={idx} className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 p-3 rounded-xl bg-gray-50 border border-gray-200 items-end">
-                    <div className="sm:col-span-4">
-                      <Input label="Full Name" value={signer.name} onChange={(e) => updateCoSigner(idx, 'name', e.target.value)} />
+              {/* Clean 3-Dropdown Grid: Property, Unit, Tenant */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <Select
+                  label="Property *"
+                  value={form.propertyName}
+                  options={properties.map((p) => p.name)}
+                  onChange={(e) => handlePropertySwitch(e.target.value)}
+                />
+                <Select
+                  label="Unit Number *"
+                  value={form.unitNumber}
+                  options={activeUnitsForProp.map((u) => u.unitNumber)}
+                  onChange={(e) => handleUnitSwitch(e.target.value)}
+                />
+                <Select
+                  label="Tenant Name *"
+                  placeholder={relatedTenants.length > 0 ? "Select Tenant..." : "No tenants found"}
+                  value={form.coSigners[0]?.name || ''}
+                  options={relatedTenants.map((t) => ({
+                    value: t.name,
+                    label: `${t.name}${t.unitNumber ? ` · Unit ${t.unitNumber}` : ''}`,
+                  }))}
+                  onChange={(e) => handleSelectTenant(e.target.value)}
+                  disabled={relatedTenants.length === 0}
+                />
+              </div>
+
+              {/* Selected Tenant Verified Details Card or Helpful Empty Banner */}
+              {selectedTenant ? (
+                <div className="p-4 rounded-xl bg-indigo-50/60 border border-indigo-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-11 h-11 rounded-xl bg-indigo-600 text-white font-bold flex items-center justify-center text-sm shadow-sm shrink-0">
+                      {selectedTenant.name.charAt(0).toUpperCase()}
                     </div>
-                    <div className="sm:col-span-3">
-                      <Select label="Role" value={signer.role} options={['Primary Tenant', 'Co-Signer', 'Guarantor', 'Landlord / Agent']} onChange={(e) => updateCoSigner(idx, 'role', e.target.value)} />
-                    </div>
-                    <div className="sm:col-span-4">
-                      <Input label="Email (E-Sign)" value={signer.email} onChange={(e) => updateCoSigner(idx, 'email', e.target.value)} />
-                    </div>
-                    <div className="sm:col-span-1 flex justify-end">
-                      <button
-                        type="button"
-                        onClick={() => removeCoSigner(idx)}
-                        className="p-2.5 rounded-lg text-rose-500 hover:bg-rose-50"
-                        title="Remove Signer"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-bold text-gray-900 text-sm">{selectedTenant.name}</h4>
+                        <Badge variant="success">Tenant Verified</Badge>
+                      </div>
+                      <p className="text-gray-500 text-xs mt-0.5">
+                        {selectedTenant.email || 'No email registered'}
+                        {(selectedTenant.phone || selectedTenant.mobile) && ` · ${selectedTenant.phone || selectedTenant.mobile}`}
+                      </p>
                     </div>
                   </div>
-                ))}
-              </div>
+                  <div className="sm:text-right text-xs text-gray-600 space-y-0.5 pt-2 sm:pt-0 border-t sm:border-t-0 border-indigo-100">
+                    <p>
+                      <span className="text-gray-400">Assigned Unit:</span>{' '}
+                      <span className="font-semibold text-gray-800">{selectedTenant.unitNumber ? `Unit ${selectedTenant.unitNumber}` : form.unitNumber || 'TBD'}</span>
+                    </p>
+                    <p>
+                      <span className="text-gray-400">Target Rent:</span>{' '}
+                      <span className="font-semibold text-indigo-700">{formatUsd(selectedTenant.rent || form.monthlyRent)}/mo</span>
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 rounded-xl bg-amber-50/70 border border-amber-200 text-xs text-amber-900 flex items-start gap-2.5">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold">
+                      {relatedTenants.length === 0
+                        ? `No active tenants found for "${form.propertyName}".`
+                        : 'Please choose a tenant from the dropdown above.'}
+                    </p>
+                    <p className="text-[11px] text-amber-800 mt-0.5">
+                      {relatedTenants.length === 0
+                        ? 'To create a lease for this property/unit, please enroll the tenant first in the Tenants directory.'
+                        : 'The tenant dropdown is strictly limited to tenants associated with this property and unit to prevent mismatched leases.'}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -662,7 +929,7 @@ export default function CreateLease() {
               Back
             </Button>
             {step < 4 ? (
-              <Button icon={ArrowRight} onClick={() => setStep((s) => Math.min(4, s + 1))}>
+              <Button icon={ArrowRight} onClick={handleContinue}>
                 Continue
               </Button>
             ) : (

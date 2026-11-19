@@ -41,6 +41,9 @@ export default function TenantList() {
       const updated = allTenants.filter((t) => String(t.id) !== String(tenantToDelete.id));
       setAllTenants(updated);
       localStorage.setItem('custom_tenants', JSON.stringify(updated));
+      try {
+        window.dispatchEvent(new Event('rentlock_tenants_changed'));
+      } catch {}
       toast.success(`${tenantToDelete.name} deleted successfully.`);
       setTenantToDelete(null);
     } catch (err) {
@@ -48,6 +51,9 @@ export default function TenantList() {
       const updated = allTenants.filter((t) => String(t.id) !== String(tenantToDelete.id));
       setAllTenants(updated);
       localStorage.setItem('custom_tenants', JSON.stringify(updated));
+      try {
+        window.dispatchEvent(new Event('rentlock_tenants_changed'));
+      } catch {}
       toast.success(`${tenantToDelete.name} removed.`);
       setTenantToDelete(null);
     } finally {
