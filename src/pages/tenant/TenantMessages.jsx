@@ -18,14 +18,28 @@ import {
   readFilesAsDataUrls,
 } from '../../data/tenantPortalData';
 
+function parseTimeMinutes(timeStr) {
+  if (!timeStr) return 0;
+  const match = String(timeStr).match(/(\d+):(\d+)\s*(AM|PM)?/i);
+  if (!match) return 0;
+  let hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  const ampm = (match[3] || '').toUpperCase();
+  if (ampm === 'PM' && hours < 12) hours += 12;
+  if (ampm === 'AM' && hours === 12) hours = 0;
+  return hours * 60 + minutes;
+}
+
 export default function TenantMessages() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const initialThreadParam = searchParams.get('thread');
   const { user } = useAuth();
 
   const [portalState, setPortalState] = useState(() => getTenantPortalState());
   const [activeFilter, setActiveFilter] = useState('inbox');
-  const [selectedThreadId, setSelectedThreadId] = useState(null);
+  const [selectedThreadId, setSelectedThreadId] = useState(
+    () => initialThreadParam || localStorage.getItem('tenant_selected_thread') || null
+  );
   const [draft, setDraft] = useState('');
   const [attachments, setAttachments] = useState([]);
 
@@ -186,14 +200,21 @@ export default function TenantMessages() {
         if (existingIdx >= 0) {
           merged[existingIdx] = bt;
         } else {
-          merged.unshift(bt);
+          merged.push(bt);
         }
       }
 
       // Add admin direct thread ONLY if messages exist for this tenant
       if (adminUnifiedThread) {
-        merged.unshift(adminUnifiedThread);
+        merged.push(adminUnifiedThread);
       }
+
+      // Sort threads so that latest active conversations appear at the top
+      merged.sort((a, b) => {
+        const tA = parseTimeMinutes(a.lastTime);
+        const tB = parseTimeMinutes(b.lastTime);
+        return tB - tA;
+      });
 
       return {
         ...prev,
@@ -246,11 +267,20 @@ export default function TenantMessages() {
   }, [visibleThreads, selectedThreadId, initialThreadParam, householdThreads]);
 
   useEffect(() => {
+    if (activeThread?.id && !selectedThreadId) {
+      setSelectedThreadId(activeThread.id);
+      localStorage.setItem('tenant_selected_thread', activeThread.id);
+    }
+  }, [activeThread?.id, selectedThreadId]);
+
+  useEffect(() => {
     threadEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [activeThread?.messages?.length]);
 
   const handleSelectThread = (threadId) => {
     setSelectedThreadId(threadId);
+    setSearchParams({ thread: threadId }, { replace: true });
+    localStorage.setItem('tenant_selected_thread', threadId);
     const updated = markThreadRead(threadId);
     setPortalState(updated);
     if (!isNaN(parseInt(threadId, 10))) {

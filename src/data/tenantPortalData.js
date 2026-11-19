@@ -113,19 +113,57 @@ export function getTenantPortalState() {
     let customTenants = [];
     try {
       customTenants = JSON.parse(localStorage.getItem('custom_tenants') || '[]');
-    } catch {
-      // ignore
-    }
-    const match = customTenants.find((t) => t.email?.toLowerCase() === activeUser.email?.toLowerCase() || t.name?.toLowerCase() === tenantName?.toLowerCase());
-    if (match) {
-      base.household = {
-        propertyName: match.propertyName || 'Assigned Property',
-        unitCode: match.unitNumber || 'Unit 101',
-        unitLabel: `${match.propertyName || 'Property'} · ${match.unitNumber || 'Unit'}`,
-        shortUnitLabel: `${(match.propertyName || '').split(' ')[0]} · ${match.unitNumber || 'Unit'}`,
-        dueDateLabel: '1st of month',
-        monthlyRent: Number(match.rent) || 0,
-      };
+    } catch {}
+
+    let customUnits = [];
+    try {
+      customUnits = JSON.parse(localStorage.getItem('custom_units') || '[]');
+    } catch {}
+
+    let customProps = [];
+    try {
+      customProps = JSON.parse(localStorage.getItem('custom_properties') || '[]');
+    } catch {}
+
+    const match = customTenants.find(
+      (t) =>
+        t.email?.toLowerCase() === activeUser.email?.toLowerCase() ||
+        t.name?.toLowerCase() === tenantName?.toLowerCase()
+    );
+
+    const occupiedUnit = customUnits.find(
+      (u) =>
+        (u.resident && (
+          u.resident.toLowerCase().includes(tenantName?.toLowerCase() || '') ||
+          u.resident.toLowerCase() === 'happy tenant' ||
+          u.resident.toLowerCase() === 'demo'
+        )) ||
+        u.status === 'Occupied'
+    );
+
+    const resolvedPropName = match?.propertyName || occupiedUnit?.propertyName || customProps[0]?.name || 'HAPPY';
+    const resolvedUnitCode = match?.unitNumber || occupiedUnit?.unitNumber || customUnits[0]?.unitNumber || '2A';
+
+    base.household = {
+      propertyName: resolvedPropName,
+      unitCode: resolvedUnitCode,
+      unitLabel: `${resolvedPropName} · Unit ${resolvedUnitCode}`,
+      shortUnitLabel: `${resolvedPropName} · ${resolvedUnitCode}`,
+      dueDateLabel: '1st of month',
+      monthlyRent: Number(match?.rent || occupiedUnit?.marketRent || 1000),
+    };
+
+    // Clean up any legacy "No unit" tags in threads
+    if (Array.isArray(base.threads)) {
+      base.threads = base.threads.map((t) => {
+        if (!t.householdUnit || t.householdUnit === 'No unit' || t.householdUnit === 'No unit assigned') {
+          return {
+            ...t,
+            householdUnit: `${resolvedPropName} · ${resolvedUnitCode}`,
+          };
+        }
+        return t;
+      });
     }
   }
 
@@ -261,15 +299,49 @@ export function createTenantWorkOrder({
   allowEntryWhenAway,
   photos = [],
 }) {
+  const state = getTenantPortalState();
+
+  // Resolve accurate tenant profile, property and unit
+  let activeUser = null;
+  try {
+    const rawUser = localStorage.getItem('pm_user');
+    if (rawUser) activeUser = JSON.parse(rawUser);
+  } catch {}
+
+  let customTenants = [];
+  try {
+    customTenants = JSON.parse(localStorage.getItem('custom_tenants') || '[]');
+  } catch {}
+
+  const matchTenant = customTenants.find(
+    (t) =>
+      (activeUser?.email && t.email?.toLowerCase() === activeUser.email.toLowerCase()) ||
+      (activeUser?.name && t.name?.toLowerCase() === activeUser.name.toLowerCase()) ||
+      (activeUser?.id && String(t.userId) === String(activeUser.id))
+  );
+
+  let customProps = [];
+  try {
+    customProps = JSON.parse(localStorage.getItem('custom_properties') || '[]');
+  } catch {}
+
+  const propName = matchTenant?.propertyName || state.household?.propertyName || customProps[0]?.name || 'HAPPY';
+  const matchedProp = customProps.find(
+    (p) => (p.name || '').trim().toLowerCase() === propName.trim().toLowerCase()
+  );
+  const propId = matchTenant?.propertyId || matchedProp?.id || (customProps[0]?.id || 'prop-happy');
+  const unitNum = unit || matchTenant?.unitNumber || state.household?.unitCode || '2A';
+  const tenantName = activeUser?.name || matchTenant?.name || 'demo';
+
   // Real API call to backend
   apiClient.post('/portal/tenant/work-order', {
     category: category || 'General',
-    issueLocation: unit || 'Unit A-204',
+    issueLocation: unitNum,
     accessTime: bestTimeToEnter || 'Anytime during business hours',
     description: description.trim(),
     photoUrls: photos || [],
   }).catch(() => {});
-  const state = getTenantPortalState();
+
   const nextNumber = 302 + state.workOrders.length;
   const id = `WO-${nextNumber}`;
   const now = new Date();
@@ -280,7 +352,7 @@ export function createTenantWorkOrder({
 
   const workOrder = {
     id,
-    unit: unit || state.household.unitLabel,
+    unit: unitNum,
     category,
     title: shortTitle,
     description: description.trim(),
@@ -292,13 +364,15 @@ export function createTenantWorkOrder({
     statusSummary: `Submitted (${urgency}) · Manager notified`,
     createdAtLabel: dateLabel,
     createdAt: now.toISOString(),
+    propertyId: propId,
+    propertyName: propName,
   };
 
   const entryText = allowEntryWhenAway ? 'Staff may enter if away' : 'Tenant must be home';
   const newThread = {
     id,
     workOrderId: id,
-    householdUnit: state.household.shortUnitLabel,
+    householdUnit: state.household?.shortUnitLabel || `${propName} · ${unitNum}`,
     contactName: 'Sarah Jenkins',
     contactInitials: 'SJ',
     contactRole: 'PROPERTY MANAGER',
@@ -334,6 +408,38 @@ export function createTenantWorkOrder({
 
   saveTenantPortalState(nextState);
 
+  // Sync to Manager Workspace rentlock_manager_workspace_v1
+  try {
+    const rawMgr = localStorage.getItem('rentlock_manager_workspace_v1');
+    const mgrState = rawMgr ? JSON.parse(rawMgr) : null;
+    if (mgrState && Array.isArray(mgrState.workOrders)) {
+      const mgrWO = {
+        id,
+        title: shortTitle,
+        description: description.trim(),
+        category: category || 'Plumbing',
+        propertyId: String(propId),
+        propertyName: propName,
+        unitNumber: unitNum,
+        residentName: tenantName,
+        residentPhone: matchTenant?.phone || '+1 (347) 555-0118',
+        priority: urgency === 'Urgent' ? 'Urgent' : 'Normal',
+        status: 'Open',
+        estimatedCost: 150,
+        createdAt: now.toISOString().slice(0, 10),
+        scheduledToday: true,
+        timeline: [
+          { label: 'Logged via RentLock resident portal', time: `${dateLabel} · ${timeLabel}` },
+          { label: 'Awaiting manager review', time: `${dateLabel} · ${timeLabel}` },
+        ],
+      };
+      if (!mgrState.workOrders.some((w) => w.id === id)) {
+        mgrState.workOrders.unshift(mgrWO);
+        localStorage.setItem('rentlock_manager_workspace_v1', JSON.stringify(mgrState));
+      }
+    }
+  } catch {}
+
   // Sync to Admin/Manager custom_work_orders_us so maintenance boards see it
   try {
     const rawWOs = localStorage.getItem('custom_work_orders_us');
@@ -345,10 +451,10 @@ export function createTenantWorkOrder({
       priority: urgency || 'Normal',
       category: category || 'Plumbing',
       type: 'Tenant Request',
-      propertyId: 1,
-      propertyName: state.household?.propertyName || 'Sunrise Residency',
-      unitNumber: unit || state.household?.unitNumber || 'A-204',
-      tenantName: state.tenantProfile?.name || 'Rebecca Miller',
+      propertyId: propId,
+      propertyName: propName,
+      unitNumber: unitNum,
+      tenantName: tenantName,
       assignedTo: 'QuickFix Plumbing',
       status: 'Reviewed & Prioritized',
       scheduledWindow: 'Awaiting dispatch',

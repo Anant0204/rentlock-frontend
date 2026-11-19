@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Download, Upload, Trash2, AlertTriangle, Layers } from 'lucide-react';
 import Table from '../../components/ui/Table';
@@ -127,6 +127,133 @@ export default function UnitList() {
     toast.success('Unit inventory CSV exported');
   };
 
+  const fileInputRef = useRef(null);
+
+  const handleImportCsv = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const text = e.target.result;
+        if (!text || typeof text !== 'string') {
+          toast.error('The selected CSV file appears to be empty.');
+          return;
+        }
+
+        const lines = text
+          .split(/\r\n|\n/)
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0);
+
+        if (lines.length < 2) {
+          toast.error('CSV file must contain a header row and at least one unit row.');
+          return;
+        }
+
+        // Header mapping
+        const headers = lines[0].split(',').map((h) => h.trim().toLowerCase().replace(/[^a-z0-9]/g, ''));
+
+        const getColIdx = (aliases) => {
+          return headers.findIndex((h) => aliases.some((a) => h.includes(a)));
+        };
+
+        const unitIdx = getColIdx(['unitnumber', 'unitnum', 'unit', 'number']);
+        const propIdx = getColIdx(['property', 'propertyname', 'buildingname']);
+        const floorIdx = getColIdx(['floor', 'level']);
+        const typeIdx = getColIdx(['type', 'unittype', 'bhk']);
+        const bedsIdx = getColIdx(['bed', 'bedroom']);
+        const bathsIdx = getColIdx(['bath', 'bathroom']);
+        const sqftIdx = getColIdx(['sqft', 'size', 'square', 'area']);
+        const rentIdx = getColIdx(['rent', 'marketrent', 'price', 'rate']);
+        const statusIdx = getColIdx(['status']);
+
+        let importedCount = 0;
+        const defaultProp = properties.find((p) => p.name === propertyFilter) || properties[0];
+
+        for (let i = 1; i < lines.length; i++) {
+          const rowValues = lines[i].split(',').map((c) => c.trim().replace(/^["']|["']$/g, ''));
+          if (rowValues.length === 0 || rowValues.every((v) => !v)) continue;
+
+          const unitNum = (unitIdx !== -1 && rowValues[unitIdx])
+            ? rowValues[unitIdx]
+            : `U-${Date.now().toString().slice(-4)}-${i}`;
+
+          let propObj = defaultProp;
+          if (propIdx !== -1 && rowValues[propIdx]) {
+            const rawPropName = rowValues[propIdx].trim().toLowerCase();
+            const matched = properties.find(
+              (p) =>
+                (p.name && p.name.trim().toLowerCase() === rawPropName) ||
+                String(p.id) === rawPropName
+            );
+            if (matched) propObj = matched;
+          }
+
+          const propIdNum = parseInt(propObj?.numericId || propObj?.originalId || propObj?.id, 10);
+          const floorNum = Number(floorIdx !== -1 ? rowValues[floorIdx] : 1) || 1;
+
+          let bedsNum = 1;
+          let bathsNum = 1;
+          if (bedsIdx !== -1 && rowValues[bedsIdx]) {
+            bedsNum = Number(rowValues[bedsIdx]) || 1;
+          } else if (typeIdx !== -1 && rowValues[typeIdx]) {
+            const match = rowValues[typeIdx].match(/(\d+)\s*(?:bd|bed|bhk)/i);
+            if (match) bedsNum = Number(match[1]) || 1;
+          }
+
+          if (bathsIdx !== -1 && rowValues[bathsIdx]) {
+            bathsNum = Number(rowValues[bathsIdx]) || 1;
+          } else if (typeIdx !== -1 && rowValues[typeIdx]) {
+            const match = rowValues[typeIdx].match(/(\d+(?:\.\d+)?)\s*(?:ba|bath)/i);
+            if (match) bathsNum = Number(match[1]) || 1;
+          }
+
+          const sqftNum = Number(sqftIdx !== -1 ? rowValues[sqftIdx] : 850) || 850;
+          const rentNum = Number(rentIdx !== -1 ? rowValues[rentIdx] : 2000) || 2000;
+          const statusVal = statusIdx !== -1 && rowValues[statusIdx] ? rowValues[statusIdx] : 'Vacant';
+
+          const unitPayload = {
+            propertyId: !isNaN(propIdNum) ? propIdNum : 1,
+            unitNumber: unitNum,
+            floor: floorNum,
+            bedrooms: bedsNum,
+            bathrooms: bathsNum,
+            sqft: sqftNum,
+            rentAmount: rentNum,
+            depositAmount: rentNum,
+            status: statusVal,
+          };
+
+          try {
+            await apiClient.post('/units', unitPayload);
+            importedCount++;
+          } catch (err) {
+            console.warn('[UnitList] Failed to save unit to DB:', unitNum, err.message);
+          }
+        }
+
+        if (importedCount === 0) {
+          toast.error('No units could be imported. Please verify your CSV headers.');
+          return;
+        }
+
+        fetchUnits();
+        toast.success(`Successfully imported ${importedCount} units into database!`);
+      } catch (err) {
+        console.error('[CSV Import Error]', err);
+        toast.error('Failed to parse CSV file. Please check file formatting.');
+      } finally {
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+      }
+    };
+
+    reader.readAsText(file);
+  };
+
   const columns = [
     {
       key: 'unitNumber',
@@ -204,7 +331,21 @@ export default function UnitList() {
               Manage Unit Types
             </Button>
             <Button variant="secondary" icon={Download} onClick={handleExport} size="sm">Export</Button>
-            <Button variant="secondary" icon={Upload} onClick={() => toast.success('CSV import queue opened — sample template ready')} size="sm">Import</Button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={handleImportCsv}
+            />
+            <Button
+              variant="secondary"
+              icon={Upload}
+              onClick={() => fileInputRef.current?.click()}
+              size="sm"
+            >
+              Import
+            </Button>
             <Button icon={Plus} onClick={() => navigate('/units/add')} className="shadow-lg shadow-indigo-100 py-2 px-4 text-xs font-bold whitespace-nowrap">
               Add Unit
             </Button>

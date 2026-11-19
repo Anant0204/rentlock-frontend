@@ -170,16 +170,22 @@ export default function ReportsDashboard() {
   }, [activeReport, propertyFilter, basis, units, invoices, expenses, portalState, owners, leases, scopedProps]);
 
   const handleExport = (fmt) => {
-    if (fmt === 'CSV') {
+    if (fmt === 'CSV' || fmt === 'Excel') {
       const csv = [reportRows.cols.join(','), ...reportRows.rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))].join('\n');
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = `rentlock-${activeReport}-${asOfDate}.csv`;
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      toast.success(`Exported ${activeReport}.csv`);
+      toast.success(`Exported ${activeReport} (${fmt})`);
+      return;
+    }
+    if (fmt === 'PDF') {
+      window.print();
       return;
     }
     toast.success(`Prepared ${fmt} report package (${basis} Basis · As of ${formatDate(asOfDate)}).`);

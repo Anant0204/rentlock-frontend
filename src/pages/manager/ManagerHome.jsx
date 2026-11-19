@@ -49,7 +49,7 @@ export default function ManagerHome() {
           }
         }
         let updatedWOs = prev.workOrders;
-        if (Array.isArray(liveTickets)) {
+        if (Array.isArray(liveTickets) && liveTickets.length > 0) {
           const allowedPropIds = new Set(updatedProps.map((p) => String(p.id)));
           const allowedPropNames = new Set(updatedProps.map((p) => (p.name || '').trim().toLowerCase()));
 
@@ -59,18 +59,25 @@ export default function ManagerHome() {
               allowedPropNames.has((t.propertyName || '').trim().toLowerCase())
           );
 
-          updatedWOs = scopedTickets.map((t) => ({
-            id: String(t.ticketNumber || t.id),
-            title: t.title || t.issue,
-            propertyId: String(t.propertyId || ''),
-            propertyName: t.propertyName || '',
-            unitNumber: t.unitNumber || '',
-            category: t.category || 'General',
-            priority: t.priority === 'High' || t.priority === 'Emergency' ? 'Urgent' : 'Normal',
-            status: t.status === 'In_Progress' ? 'In progress' : t.status === 'Pending_Approval' ? 'Approval needed' : 'Open',
-            estimatedCost: Number(t.costEstimate || t.cost || 0),
-            residentName: t.tenantName || 'Resident',
-          }));
+          if (scopedTickets.length > 0) {
+            const mappedLive = scopedTickets.map((t) => ({
+              id: String(t.ticketNumber || t.id),
+              title: t.title || t.issue,
+              propertyId: String(t.propertyId || ''),
+              propertyName: t.propertyName || '',
+              unitNumber: t.unitNumber || '',
+              category: t.category || 'General',
+              priority: t.priority === 'High' || t.priority === 'Emergency' ? 'Urgent' : 'Normal',
+              status: t.status === 'In_Progress' ? 'In progress' : t.status === 'Pending_Approval' ? 'Approval needed' : 'Open',
+              estimatedCost: Number(t.costEstimate || t.cost || 0),
+              residentName: t.tenantName || 'Resident',
+            }));
+            const liveIds = new Set(mappedLive.map((w) => w.id));
+            updatedWOs = [
+              ...mappedLive,
+              ...(prev.workOrders || []).filter((w) => !liveIds.has(w.id)),
+            ];
+          }
         }
         return {
           ...prev,

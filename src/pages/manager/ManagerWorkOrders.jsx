@@ -39,12 +39,19 @@ export default function ManagerWorkOrders() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
   useEffect(() => {
-    const local = getManagerWorkspaceState();
-    setState(local);
+    const refreshLocal = () => {
+      const local = getManagerWorkspaceState();
+      setState(local);
+    };
+
+    refreshLocal();
+    window.addEventListener('focus', refreshLocal);
+    window.addEventListener('storage', refreshLocal);
 
     apiClient.get('/maintenance?limit=100').then((res) => {
       const liveTickets = res?.items || res;
-      if (Array.isArray(liveTickets)) {
+      if (Array.isArray(liveTickets) && liveTickets.length > 0) {
+        const local = getManagerWorkspaceState();
         const allowedPropIds = new Set(local.properties.map((p) => String(p.id)));
         const allowedPropNames = new Set(local.properties.map((p) => (p.name || '').trim().toLowerCase()));
 
@@ -54,9 +61,8 @@ export default function ManagerWorkOrders() {
             allowedPropNames.has((t.propertyName || '').trim().toLowerCase())
         );
 
-        setState((prev) => ({
-          ...prev,
-          workOrders: scopedTickets.map((t) => ({
+        if (scopedTickets.length > 0) {
+          const liveMapped = scopedTickets.map((t) => ({
             id: String(t.ticketNumber || t.id),
             title: t.title || t.issue,
             description: t.description || 'Maintenance issue logged in resident portal',
@@ -75,10 +81,24 @@ export default function ManagerWorkOrders() {
               { label: 'Logged via RentLock resident portal', time: '11/14 · 10:15 AM' },
               { label: 'Assigned to maintenance queue', time: '11/14 · 10:30 AM' },
             ],
-          })),
-        }));
+          }));
+
+          const liveIds = new Set(liveMapped.map((w) => w.id));
+          setState((prev) => ({
+            ...prev,
+            workOrders: [
+              ...liveMapped,
+              ...(prev.workOrders || []).filter((w) => !liveIds.has(w.id)),
+            ],
+          }));
+        }
       }
     }).catch(() => {});
+
+    return () => {
+      window.removeEventListener('focus', refreshLocal);
+      window.removeEventListener('storage', refreshLocal);
+    };
   }, []);
 
   // Closeout view state

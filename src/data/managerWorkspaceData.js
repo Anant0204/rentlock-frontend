@@ -156,6 +156,118 @@ export function getManagerWorkspaceState() {
 
   base.properties = mappedProps;
 
+  // Collect all potential work orders from manager state, custom_work_orders_us, and tenant portal
+  const existingWOs = Array.isArray(base.workOrders) ? [...base.workOrders] : [];
+  const knownWOIds = new Set(existingWOs.map((w) => String(w.id)));
+
+  // Target property for this manager (e.g. HAPPY)
+  const defaultMgrPropName = mappedProps[0]?.name || 'HAPPY';
+  const defaultMgrPropId = String(mappedProps[0]?.id || 'prop-happy');
+
+  // 1. Sync from custom_work_orders_us (Admin maintenance kanban)
+  try {
+    const rawCustomWOs = localStorage.getItem('custom_work_orders_us');
+    if (rawCustomWOs) {
+      const parsedCustomWOs = JSON.parse(rawCustomWOs);
+      if (Array.isArray(parsedCustomWOs)) {
+        let customChanged = false;
+        parsedCustomWOs.forEach((cw) => {
+          let cwPropName = (cw.propertyName || '').trim();
+          let cwPropId = String(cw.propertyId || '');
+
+          // If this ticket had legacy placeholder "Sunrise Residency" or "1", remap to active property (HAPPY)
+          if (
+            (!cwPropName || cwPropName.toLowerCase() === 'sunrise residency' || cwPropId === '1') &&
+            mappedProps.length > 0
+          ) {
+            cwPropName = defaultMgrPropName;
+            cwPropId = defaultMgrPropId;
+            cw.propertyName = cwPropName;
+            cw.propertyId = cwPropId;
+            customChanged = true;
+          }
+
+          const existingIdx = existingWOs.findIndex((w) => String(w.id) === String(cw.id));
+          if (existingIdx > -1) {
+            existingWOs[existingIdx].propertyName = cwPropName || defaultMgrPropName;
+            existingWOs[existingIdx].propertyId = cwPropId || defaultMgrPropId;
+          } else {
+            existingWOs.push({
+              id: String(cw.id),
+              title: cw.title || `${cw.category || 'Maintenance'} repair`,
+              description: cw.description || 'Maintenance issue logged in resident portal',
+              category: cw.category || 'General',
+              propertyId: cwPropId || defaultMgrPropId,
+              propertyName: cwPropName || defaultMgrPropName,
+              unitNumber: cw.unitNumber || '2A',
+              residentName: cw.tenantName || 'Resident',
+              residentPhone: '+1 (347) 555-0118',
+              priority: cw.priority === 'Urgent' || cw.priority === 'High' ? 'Urgent' : 'Normal',
+              status: cw.status === 'Completed' ? 'Closed' : cw.status === 'In Progress' ? 'In progress' : cw.status === 'Reviewed & Prioritized' ? 'Open' : (cw.status || 'Open'),
+              estimatedCost: Number(cw.cost || 0),
+              createdAt: cw.createdAt || new Date().toISOString().slice(0, 10),
+              scheduledToday: true,
+              timeline: [
+                { label: 'Logged via RentLock resident portal', time: 'Recently' },
+              ],
+            });
+            knownWOIds.add(String(cw.id));
+          }
+        });
+        if (customChanged) {
+          localStorage.setItem('custom_work_orders_us', JSON.stringify(parsedCustomWOs));
+        }
+      }
+    }
+  } catch {}
+
+  // 2. Sync from rentlock_tenant_portal_v1 (Resident portal submissions like WO-302, WO-303)
+  try {
+    const rawTenantState = localStorage.getItem('rentlock_tenant_portal_v1');
+    if (rawTenantState) {
+      const tenantState = JSON.parse(rawTenantState);
+      if (Array.isArray(tenantState?.workOrders)) {
+        tenantState.workOrders.forEach((two) => {
+          const woPropName = two.propertyName || defaultMgrPropName;
+          const woPropId = String(two.propertyId || defaultMgrPropId);
+
+          const existingIdx = existingWOs.findIndex((w) => String(w.id) === String(two.id));
+          if (existingIdx > -1) {
+            existingWOs[existingIdx].propertyName = woPropName;
+            existingWOs[existingIdx].propertyId = woPropId;
+            existingWOs[existingIdx].priority = two.urgency === 'Urgent' ? 'Urgent' : 'Normal';
+            existingWOs[existingIdx].title = two.title || `${two.category} repair`;
+            existingWOs[existingIdx].description = two.description || 'Maintenance issue logged in resident portal';
+          } else {
+            existingWOs.push({
+              id: String(two.id),
+              title: two.title || `${two.category} repair`,
+              description: two.description || 'Maintenance issue logged in resident portal',
+              category: two.category || 'General',
+              propertyId: woPropId,
+              propertyName: woPropName,
+              unitNumber: two.unit || tenantState?.household?.unitCode || '2A',
+              residentName: tenantState?.household?.tenantName || 'demo',
+              residentPhone: '+1 (347) 555-0118',
+              priority: two.urgency === 'Urgent' ? 'Urgent' : 'Normal',
+              status: two.status || 'Open',
+              estimatedCost: 150,
+              createdAt: two.createdAt ? two.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10),
+              scheduledToday: true,
+              timeline: [
+                { label: 'Logged via RentLock resident portal', time: 'Recently' },
+                { label: 'Awaiting manager dispatch', time: 'Pending' },
+              ],
+            });
+            knownWOIds.add(String(two.id));
+          }
+        });
+      }
+    }
+  } catch {}
+
+  base.workOrders = existingWOs;
+
   // Strict isolation for all associated manager workspace data
   if (mappedProps.length === 0) {
     base.properties = [];
@@ -404,6 +516,34 @@ export function completeManagerWorkOrder({
     propertyId: target?.propertyId || '',
     targetPath: `/manager/work-orders?wo=${workOrderId}`,
   };
+
+  // Sync close status to custom_work_orders_us and rentlock_tenant_portal_v1
+  try {
+    const rawWOs = localStorage.getItem('custom_work_orders_us');
+    if (rawWOs) {
+      const cWOs = JSON.parse(rawWOs);
+      const idx = cWOs.findIndex((w) => String(w.id) === String(workOrderId));
+      if (idx > -1) {
+        cWOs[idx] = { ...cWOs[idx], status: 'Completed', updatedAt: new Date().toISOString().split('T')[0] };
+        localStorage.setItem('custom_work_orders_us', JSON.stringify(cWOs));
+      }
+    }
+  } catch {}
+
+  try {
+    const rawTenant = localStorage.getItem('rentlock_tenant_portal_v1');
+    if (rawTenant) {
+      const tState = JSON.parse(rawTenant);
+      if (Array.isArray(tState?.workOrders)) {
+        const tIdx = tState.workOrders.findIndex((w) => String(w.id) === String(workOrderId));
+        if (tIdx > -1) {
+          tState.workOrders[tIdx].status = 'Completed';
+          tState.workOrders[tIdx].statusSummary = `Resolved · ${ts}`;
+          localStorage.setItem('rentlock_tenant_portal_v1', JSON.stringify(tState));
+        }
+      }
+    }
+  } catch {}
 
   return saveManagerState({
     ...state,
