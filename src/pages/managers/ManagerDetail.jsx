@@ -4,7 +4,7 @@ import apiClient from '../../services/apiClient';
 import {
   Briefcase, Building2, Wrench, DollarSign, ShieldCheck,
   Edit2, Archive, ArrowLeft, Mail, Phone, Clock,
-  CheckCircle2, RotateCcw, KeyRound, ExternalLink, Users
+  CheckCircle2, RotateCcw, KeyRound, Users
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import PageHeader from '../../components/shared/PageHeader';
@@ -20,12 +20,10 @@ import { getManagers, updateManager, archiveManager } from '../../data/mockExtra
 import { getProperties } from '../../data/mockProperties';
 import { mockComplaints } from '../../data/mockExtra';
 import { formatUsd } from '../../utils/formatters';
-import { useAuth } from '../../context/AuthContext';
 
 export default function ManagerDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { switchRole } = useAuth();
   const [managers, setManagers] = useState(() => getManagers());
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
@@ -119,16 +117,6 @@ export default function ManagerDetail() {
     toast.success(next ? `${manager.name} deactivated.` : `${manager.name} reactivated.`);
   };
 
-  const handleDemoSwitch = async () => {
-    try {
-      await switchRole('manager');
-      toast.success(`Switched role to Manager (${manager.name})`);
-      navigate('/dashboard');
-    } catch {
-      toast.error('Could not switch role.');
-    }
-  };
-
   return (
     <div className="space-y-6 pb-12">
       <PageHeader
@@ -164,14 +152,6 @@ export default function ManagerDetail() {
               onClick={handleToggleArchive}
             >
               {manager.archived ? 'Reactivate' : 'Deactivate'}
-            </Button>
-            <Button
-              variant="primary"
-              icon={ExternalLink}
-              size="sm"
-              onClick={handleDemoSwitch}
-            >
-              Test Login as Manager
             </Button>
           </div>
         }
