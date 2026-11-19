@@ -684,8 +684,8 @@ export default function Login() {
                   {errors.password && <motion.p initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} className="text-[11px] text-red-400 mt-1">{errors.password}</motion.p>}
                 </motion.div>
 
-                {/* Remember / Forgot */}
-                <motion.div variants={fadeUp} className="flex items-center justify-between">
+                {/* Remember me */}
+                <motion.div variants={fadeUp} className="flex items-center">
                   <label htmlFor="remember" className="flex items-center gap-2 cursor-pointer group">
                     <input id="remember" type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="sr-only peer" />
                     <div className="w-3.5 h-3.5 rounded border border-white/12 bg-white/[0.04] peer-checked:bg-indigo-500 peer-checked:border-indigo-500 transition-all flex items-center justify-center">
@@ -697,9 +697,6 @@ export default function Login() {
                     </div>
                     <span className="text-[11px] text-white/25 group-hover:text-white/40 transition-colors">Remember me</span>
                   </label>
-                  <button type="button" onClick={() => navigate('/forgot-password')} className="text-[11px] text-indigo-400/50 hover:text-indigo-400 transition-colors cursor-pointer">
-                    Forgot password?
-                  </button>
                 </motion.div>
 
                 {/* Submit */}

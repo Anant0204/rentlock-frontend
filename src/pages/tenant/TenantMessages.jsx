@@ -1,13 +1,15 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import apiClient from '../../services/apiClient';
-import { Send, Paperclip, X, CheckCheck } from 'lucide-react';
+import { Send, Paperclip, X, CheckCheck, MessageSquare } from 'lucide-react';
 import toast from 'react-hot-toast';
 import PageHeader from '../../components/shared/PageHeader';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import Avatar from '../../components/ui/Avatar';
+import { useAuth } from '../../context/AuthContext';
+import { addNotification } from '../../data/mockNotifications';
 import {
   getTenantPortalState,
   sendTenantMessage,
@@ -19,6 +21,7 @@ import {
 export default function TenantMessages() {
   const [searchParams] = useSearchParams();
   const initialThreadParam = searchParams.get('thread');
+  const { user } = useAuth();
 
   const [portalState, setPortalState] = useState(() => getTenantPortalState());
   const [activeFilter, setActiveFilter] = useState('inbox');
@@ -26,44 +29,189 @@ export default function TenantMessages() {
   const [draft, setDraft] = useState('');
   const [attachments, setAttachments] = useState([]);
 
-  useEffect(() => {
-    apiClient.get('/operations/communications').then((res) => {
-      const items = Array.isArray(res) ? res : res?.items;
-      if (Array.isArray(items) && items.length > 0) {
-        setPortalState((prev) => {
-          const mapped = items.map((c, idx) => ({
-            id: String(c.id || c.broadcastNumber || idx + 1),
-            subject: c.title,
-            householdUnit: prev?.household?.shortUnitLabel || 'A-204',
-            unreadCount: 0,
-            messages: [
-              {
-                id: 1,
-                sender: 'management',
-                senderLabel: 'Property Management',
-                text: c.body || c.content,
-                sentAt: '10:30 AM',
-                attachments: [],
-              },
-            ],
-          }));
-          return {
-            ...prev,
-            threads: [...mapped, ...prev.threads],
-          };
-        });
-      }
-    }).catch(() => {});
-  }, []);
-
   const fileInputRef = useRef(null);
   const threadEndRef = useRef(null);
 
-  // Scope strictly to this tenant's own household & work orders
+  // Sync real messages from Backend Database + LocalStorage Admin Chats + Notifications
+  const syncAllMessages = useCallback(async () => {
+    const adminMessages = [];
+    const seenTexts = new Set();
+
+    // 1. Scan localStorage pm_chat_tenant... for direct messages from Admin
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('pm_chat_tenant') || key === 'pm_chat_tenantvitara')) {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              parsed.forEach((m) => {
+                const clean = (m.text || '').trim();
+                if (clean && !seenTexts.has(clean)) {
+                  seenTexts.add(clean);
+                  adminMessages.push({
+                    id: m.id || `admin-msg-${adminMessages.length}`,
+                    sender: m.isStaff || (m.sender && m.sender.includes('Admin')) ? 'management' : 'tenant',
+                    senderName: m.sender || 'Robert King (Admin)',
+                    text: clean,
+                    time: m.time || 'Just now',
+                    attachments: m.attachments || [],
+                  });
+                }
+              });
+            }
+          }
+        }
+      }
+    } catch { }
+
+    // 2. Scan pm_notifications for any direct message notifications sent to tenant
+    try {
+      const rawNotifs = localStorage.getItem('pm_notifications');
+      if (rawNotifs) {
+        const notifs = JSON.parse(rawNotifs);
+        if (Array.isArray(notifs)) {
+          notifs.forEach((n) => {
+            const isTenantMsg =
+              n.targetRole === 'tenant' ||
+              (n.title && n.title.toLowerCase().includes('direct message'));
+            if (isTenantMsg && n.desc) {
+              const clean = n.desc.trim();
+              if (clean && !seenTexts.has(clean)) {
+                seenTexts.add(clean);
+                adminMessages.push({
+                  id: n.id || `notif-msg-${adminMessages.length}`,
+                  sender: 'management',
+                  senderName: n.sender || 'Robert King (Admin)',
+                  text: clean,
+                  time: n.time || 'Just now',
+                  attachments: [],
+                });
+              }
+            }
+          });
+        }
+      }
+    } catch { }
+
+    // 3. Fetch from Backend Database (/messages/threads)
+    let backendThreadsList = [];
+    try {
+      const res = await apiClient.get('/messages/threads');
+      const bThreads = Array.isArray(res) ? res : res?.data || [];
+      if (Array.isArray(bThreads) && bThreads.length > 0) {
+        for (const th of bThreads) {
+          try {
+            const msgRes = await apiClient.get(`/messages/threads/${th.id}`);
+            const msgs = Array.isArray(msgRes) ? msgRes : msgRes?.data || [];
+            const mappedMsgs = msgs.map((m) => {
+              const clean = (m.content || '').trim();
+              if (clean) seenTexts.add(clean);
+              const isSenderTenant = m.senderId === user?.id || m.sender?.role === 'tenant';
+              return {
+                id: m.id,
+                sender: isSenderTenant ? 'tenant' : 'management',
+                senderName: m.sender?.name || (isSenderTenant ? 'You' : 'Robert King (Admin)'),
+                text: clean,
+                time: new Date(m.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+                attachments: m.attachmentUrls ? (typeof m.attachmentUrls === 'string' ? JSON.parse(m.attachmentUrls) : m.attachmentUrls) : [],
+              };
+            });
+
+            backendThreadsList.push({
+              id: String(th.id),
+              contactName: th.otherUser?.name || 'Robert King (Admin)',
+              contactInitials: (th.otherUser?.name || 'RK').slice(0, 2).toUpperCase(),
+              contactRole: (th.otherUser?.role || 'admin').toUpperCase() === 'ADMIN' ? 'PROPERTY MANAGEMENT' : (th.otherUser?.role || 'MANAGEMENT').toUpperCase(),
+              subject: th.lastMessage || 'Direct Support',
+              householdUnit: 'Admin Office · Direct Support',
+              headerTag: 'Direct Chat with Management',
+              lastTime: th.lastMessageAt ? new Date(th.lastMessageAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : 'Today',
+              unreadCount: th.unreadCount || 0,
+              messages: mappedMsgs,
+            });
+          } catch { }
+        }
+      }
+    } catch { }
+
+    // Assemble unified Admin conversation thread if there are local/notification messages
+    let adminUnifiedThread = null;
+    if (adminMessages.length > 0) {
+      const lastMsg = adminMessages[adminMessages.length - 1];
+      adminUnifiedThread = {
+        id: 'admin-direct-thread',
+        contactName: 'Robert King (Admin)',
+        contactInitials: 'RK',
+        contactRole: 'PROPERTY MANAGEMENT',
+        subject: lastMsg.text.slice(0, 45),
+        householdUnit: 'Property Management Office',
+        headerTag: 'Direct Chat with Management',
+        lastTime: lastMsg.time || 'Just now',
+        unreadCount: 0,
+        messages: adminMessages,
+      };
+    }
+
+    setPortalState((prev) => {
+      let merged = [...(prev.threads || [])];
+
+      // Add backend threads
+      for (const bt of backendThreadsList) {
+        const existingIdx = merged.findIndex((t) => t.id === bt.id);
+        if (existingIdx >= 0) {
+          merged[existingIdx] = bt;
+        } else {
+          merged.unshift(bt);
+        }
+      }
+
+      // Add/Update admin direct thread
+      if (adminUnifiedThread) {
+        const existingIdx = merged.findIndex((t) => t.id === 'admin-direct-thread');
+        if (existingIdx >= 0) {
+          // Merge unique messages
+          const existingMsgs = merged[existingIdx].messages || [];
+          const combined = [...adminUnifiedThread.messages];
+          existingMsgs.forEach((em) => {
+            if (!combined.some((c) => c.text === em.text)) {
+              combined.push(em);
+            }
+          });
+          merged[existingIdx] = { ...adminUnifiedThread, messages: combined };
+        } else {
+          merged.unshift(adminUnifiedThread);
+        }
+      }
+
+      return {
+        ...prev,
+        threads: merged,
+      };
+    });
+  }, [user]);
+
+  useEffect(() => {
+    syncAllMessages();
+
+    // Listen to real-time notification events when Admin sends messages
+    const handleUpdate = () => {
+      syncAllMessages();
+    };
+    window.addEventListener('pm:notification_updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+
+    return () => {
+      window.removeEventListener('pm:notification_updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+    };
+  }, [syncAllMessages]);
+
+  // Show all tenant threads (Admin chats, work orders, direct messages)
   const householdThreads = useMemo(() => {
-    const unit = portalState.household.shortUnitLabel;
-    return portalState.threads.filter((t) => t.householdUnit === unit || t.workOrderId);
-  }, [portalState]);
+    return portalState.threads || [];
+  }, [portalState.threads]);
 
   const unreadCount = useMemo(() => getUnreadMessageCount(portalState), [portalState]);
 
@@ -72,7 +220,7 @@ export default function TenantMessages() {
       return householdThreads.filter((t) => (t.unreadCount || 0) > 0);
     }
     if (activeFilter === 'sent') {
-      return householdThreads.filter((t) => t.messages.some((m) => m.sender === 'tenant'));
+      return householdThreads.filter((t) => (t.messages || []).some((m) => m.sender === 'tenant'));
     }
     return householdThreads;
   }, [householdThreads, activeFilter]);
@@ -82,9 +230,10 @@ export default function TenantMessages() {
     return (
       visibleThreads.find((t) => t.id === preferredId) ||
       visibleThreads[0] ||
+      householdThreads[0] ||
       null
     );
-  }, [visibleThreads, selectedThreadId, initialThreadParam]);
+  }, [visibleThreads, selectedThreadId, initialThreadParam, householdThreads]);
 
   useEffect(() => {
     threadEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -94,11 +243,17 @@ export default function TenantMessages() {
     setSelectedThreadId(threadId);
     const updated = markThreadRead(threadId);
     setPortalState(updated);
+    if (!isNaN(parseInt(threadId, 10))) {
+      apiClient.patch(`/messages/threads/${threadId}/read`).catch(() => {});
+    }
   };
 
   const handleMarkRead = (threadId) => {
     const updated = markThreadRead(threadId);
     setPortalState(updated);
+    if (!isNaN(parseInt(threadId, 10))) {
+      apiClient.patch(`/messages/threads/${threadId}/read`).catch(() => {});
+    }
   };
 
   const handleFileChange = async (e) => {
@@ -109,7 +264,7 @@ export default function TenantMessages() {
     e.target.value = '';
   };
 
-  const handleSend = (e) => {
+  const handleSend = async (e) => {
     e.preventDefault();
     if (!activeThread) return;
     if (!draft.trim() && attachments.length === 0) {
@@ -117,18 +272,94 @@ export default function TenantMessages() {
       return;
     }
 
-    try {
-      const updated = sendTenantMessage({
-        threadId: activeThread.id,
-        text: draft,
-        attachments,
+    const cleanDraft = draft.trim();
+    const timeLabel = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    const newMsg = {
+      id: `MSG-${Date.now()}`,
+      sender: 'tenant',
+      senderName: user?.name || 'You',
+      text: cleanDraft,
+      time: timeLabel,
+      attachments,
+    };
+
+    // Update local state thread
+    setPortalState((prev) => {
+      const nextThreads = (prev.threads || []).map((t) => {
+        if (t.id === activeThread.id) {
+          return {
+            ...t,
+            lastTime: timeLabel,
+            messages: [...(t.messages || []), newMsg],
+          };
+        }
+        return t;
       });
-      setPortalState(updated);
-      setDraft('');
-      setAttachments([]);
+      return { ...prev, threads: nextThreads };
+    });
+
+    // Sync to localStorage pm_chat_tenant... so Admin chat board sees Tenant's response immediately
+    try {
+      let matchedKey = null;
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && (k.startsWith('pm_chat_tenant') || k === 'pm_chat_tenantvitara')) {
+          matchedKey = k;
+          const raw = localStorage.getItem(k);
+          const parsed = raw ? JSON.parse(raw) : [];
+          parsed.push({
+            id: Date.now(),
+            sender: user?.name || 'Tenant',
+            text: cleanDraft,
+            time: timeLabel,
+            isStaff: false,
+          });
+          localStorage.setItem(k, JSON.stringify(parsed));
+        }
+      }
+      if (!matchedKey) {
+        localStorage.setItem(
+          `pm_chat_tenant-${user?.id || 1}`,
+          JSON.stringify([
+            {
+              id: Date.now(),
+              sender: user?.name || 'Tenant',
+              text: cleanDraft,
+              time: timeLabel,
+              isStaff: false,
+            },
+          ])
+        );
+      }
+    } catch { }
+
+    // Save to real Backend Database
+    try {
+      const numThreadId = parseInt(activeThread.id, 10);
+      await apiClient.post('/messages', {
+        recipientId: 1, // Admin user
+        recipientEmail: 'admin@rentlock.com',
+        content: cleanDraft,
+        threadId: isNaN(numThreadId) ? undefined : numThreadId,
+      });
     } catch (err) {
-      toast.error(err.message || 'Unable to send message.');
+      console.warn('Backend message sync warning:', err.message);
     }
+
+    // Dispatch notification to Admin
+    addNotification({
+      title: `💬 Reply from ${user?.name || 'Tenant'}`,
+      desc: cleanDraft,
+      targetRole: 'admin',
+      recipientEmail: 'admin@rentlock.com',
+      sender: user?.name || 'Tenant',
+      link: '/communication',
+      time: 'Just now',
+    });
+
+    setDraft('');
+    setAttachments([]);
+    toast.success('Message sent to Property Management!');
   };
 
   const filterTabs = [
@@ -171,8 +402,18 @@ export default function TenantMessages() {
           {/* Thread List */}
           <div className="lg:col-span-4 border border-gray-100 rounded-2xl p-3 space-y-2 bg-gray-50/40">
             {visibleThreads.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-xs text-gray-400 py-12">
-                No conversations in {activeFilter}.
+              <div className="h-full flex flex-col items-center justify-center text-xs text-gray-400 py-12 gap-2 text-center">
+                <p>No conversations in {activeFilter}.</p>
+                {activeFilter !== 'inbox' && householdThreads.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveFilter('inbox')}
+                    className="text-[#4A6CF7] font-semibold hover:underline text-xs cursor-pointer inline-flex items-center gap-1"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    View Inbox ({householdThreads.length})
+                  </button>
+                )}
               </div>
             ) : (
               visibleThreads.map((thread) => {
@@ -249,11 +490,11 @@ export default function TenantMessages() {
 
                 {/* Messages */}
                 <div className="flex-1 overflow-y-auto py-5 space-y-4 max-h-[340px] pr-1">
-                  {activeThread.messages.map((msg) => {
+                  {(activeThread.messages || []).map((msg, idx) => {
                     const isTenant = msg.sender === 'tenant';
                     return (
                       <div
-                        key={msg.id}
+                        key={msg.id || idx}
                         className={`flex ${isTenant ? 'justify-end' : 'justify-start'}`}
                       >
                         <div
@@ -266,9 +507,9 @@ export default function TenantMessages() {
                           <p className="whitespace-pre-line leading-relaxed">{msg.text}</p>
                           {msg.attachments?.length > 0 && (
                             <div className="flex flex-wrap gap-2 mt-2.5">
-                              {msg.attachments.map((att, idx) => (
+                              {msg.attachments.map((att, attIdx) => (
                                 <img
-                                  key={idx}
+                                  key={attIdx}
                                   src={att.url}
                                   alt={att.name || 'Attachment'}
                                   className="w-24 h-24 object-cover rounded-xl border border-white shadow-sm"
@@ -317,7 +558,7 @@ export default function TenantMessages() {
                       type="text"
                       value={draft}
                       onChange={(e) => setDraft(e.target.value)}
-                      placeholder="Write a message..."
+                      placeholder="Write a message to property management..."
                       className="flex-1 min-w-0 bg-transparent text-sm text-gray-800 placeholder:text-gray-400 outline-none pr-2 py-1"
                     />
                     <Button
@@ -362,7 +603,7 @@ export default function TenantMessages() {
       </Card>
 
       <p className="text-xs text-gray-400">
-        Keep it simple: one tenant inbox, message thread, optional attachment, and send. Tenant sees only conversations for their own household and work orders.
+        Direct messages with Property Management and household updates.
       </p>
     </div>
   );
