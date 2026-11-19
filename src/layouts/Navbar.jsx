@@ -8,6 +8,12 @@ import { useGlobalSearch } from '../context/SearchContext';
 import { getGlobalSearchResults } from '../utils/searchUtils';
 import { getManagerWorkspaceState } from '../data/managerWorkspaceData';
 import { getOwnerPortalState } from '../data/ownerPortalData';
+import {
+  getUserNotifications,
+  markAllUserNotificationsRead,
+  markNotificationRead,
+} from '../data/mockNotifications';
+import toast from 'react-hot-toast';
 import Avatar from '../components/ui/Avatar';
 import { ROLE_LABELS } from '../utils/constants';
 
@@ -184,7 +190,14 @@ export default function Navbar() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const notifications = [];
+  const [notifications, setNotifications] = useState(() => getUserNotifications(user));
+
+  useEffect(() => {
+    const refresh = () => setNotifications(getUserNotifications(user));
+    refresh();
+    window.addEventListener('pm:notification_updated', refresh);
+    return () => window.removeEventListener('pm:notification_updated', refresh);
+  }, [user]);
 
   const quickAddItems = isTenant
     ? [
@@ -342,7 +355,15 @@ export default function Navbar() {
               <div className="absolute right-0 top-12 w-80 bg-white rounded-xl shadow-xl border border-gray-100 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
                 <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-gray-800">Notifications</h3>
-                  <span className="text-xs text-blue-600 font-medium cursor-pointer hover:underline">Mark all read</span>
+                  <span
+                    onClick={() => {
+                      markAllUserNotificationsRead(user);
+                      toast.success('All notifications marked as read');
+                    }}
+                    className="text-xs text-blue-600 font-medium cursor-pointer hover:underline"
+                  >
+                    Mark all read
+                  </span>
                 </div>
                 <div className="max-h-80 overflow-y-auto divide-y divide-gray-50">
                   {notifications.length === 0 ? (
@@ -351,7 +372,25 @@ export default function Navbar() {
                     </div>
                   ) : (
                     notifications.map(n => (
-                      <div key={n.id} className={`px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer ${!n.read ? 'bg-blue-50/30' : ''}`}>
+                      <div
+                        key={n.id}
+                        onClick={() => {
+                          markNotificationRead(n.id);
+                          setNotifOpen(false);
+                          if (n.link) {
+                            navigate(n.link);
+                          } else if (isTenant) {
+                            navigate('/tenant/messages');
+                          } else if (isManager) {
+                            navigate('/manager/messages');
+                          } else if (isOwner) {
+                            navigate('/owner/records');
+                          } else {
+                            navigate('/communication');
+                          }
+                        }}
+                        className={`px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer ${!n.read ? 'bg-blue-50/30' : ''}`}
+                      >
                         <div className="flex items-start gap-3">
                           {!n.read && <div className="w-2 h-2 bg-blue-500 rounded-full mt-1.5 shrink-0" />}
                           <div className={!n.read ? '' : 'pl-5'}>
