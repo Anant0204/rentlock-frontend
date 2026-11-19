@@ -30,8 +30,20 @@ export default function ExpenseList() {
     apiClient.get('/expenses?limit=100').then((res) => {
       const items = res?.items || res;
       if (Array.isArray(items)) {
-        setExpenses(items);
-        localStorage.setItem('custom_expenses_us', JSON.stringify(items));
+        const local = getExpenses();
+        const mergedMap = new Map();
+        items.forEach((item) => mergedMap.set(String(item.id), item));
+        local.forEach((item) => {
+          if (!mergedMap.has(String(item.id))) {
+            mergedMap.set(String(item.id), item);
+          } else {
+            const server = mergedMap.get(String(item.id));
+            mergedMap.set(String(item.id), { ...item, ...server });
+          }
+        });
+        const merged = Array.from(mergedMap.values());
+        setExpenses(merged);
+        localStorage.setItem('custom_expenses_us', JSON.stringify(merged));
       }
     }).catch(() => {});
   }, []);
@@ -77,7 +89,7 @@ export default function ExpenseList() {
       label: 'Vendor & Description',
       render: (_, row) => (
         <div>
-          <p className="font-bold text-gray-900">{row.vendor}</p>
+          <p className="font-bold text-gray-900">{row.vendor || row.vendorName || 'In-House Staff'}</p>
           <p className="text-xs text-gray-500 truncate max-w-[230px]">{row.description}</p>
         </div>
       ),
@@ -87,14 +99,14 @@ export default function ExpenseList() {
       label: 'Property & Class',
       render: (_, row) => (
         <div>
-          <p className="font-semibold text-gray-800">{row.propertyName}</p>
+          <p className="font-semibold text-gray-800">{row.propertyName || row.property?.name || 'General Portfolio'}</p>
           <p className="text-[11px] text-indigo-600 font-bold">{row.expenseType || 'Operating'} · {row.category}</p>
         </div>
       ),
     },
     { key: 'amount', label: 'Amount (USD)', render: (_, row) => <span className="font-bold text-gray-900">{formatUsd(row.amount)}</span> },
-    { key: 'paymentState', label: 'AP State', render: (_, row) => <Badge status={row.paymentState === 'Unpaid Bill' ? 'Pending' : row.paymentState} /> },
-    { key: 'status', label: 'Approval', render: (_, row) => <Badge status={row.status} /> },
+    { key: 'paymentState', label: 'AP State', render: (_, row) => <Badge status={row.paymentState === 'Unpaid Bill' ? 'Pending' : (row.paymentState || (row.isPaid ? 'Paid' : 'Pending'))} /> },
+    { key: 'status', label: 'Approval', render: (_, row) => <Badge status={row.status || (row.isPaid ? 'Approved' : 'Pending')} /> },
   ];
 
   const reportShortcuts = [
