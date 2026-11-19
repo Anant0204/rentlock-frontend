@@ -5,6 +5,7 @@ import PageHeader from '../../components/shared/PageHeader';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import { getProperties } from '../../data/mockProperties';
+import { getUnitTypes, fetchUnitTypesFromBackend } from '../../utils/unitTypeStore';
 import apiClient from '../../services/apiClient';
 import toast from 'react-hot-toast';
 
@@ -21,6 +22,9 @@ export default function AddUnit() {
     ? rawProps
     : [{ id: 1, name: 'Sunrise Residency' }];
 
+  const initialUnitTypes = getUnitTypes();
+  const [unitTypes, setUnitTypes] = useState(initialUnitTypes);
+
   const [form, setForm] = useState({
     propertyId: properties[0]?.id || 1,
     unitNumber: '',
@@ -29,6 +33,7 @@ export default function AddUnit() {
     size: '900',
     beds: '2',
     baths: '2',
+    unitType: initialUnitTypes[0] || 'Studio',
     rent: '2150',
     parkingSlot: '',
     furnished: 'Unfurnished',
@@ -43,6 +48,16 @@ export default function AddUnit() {
   ]);
 
   useEffect(() => {
+    fetchUnitTypesFromBackend().then((types) => {
+      if (Array.isArray(types) && types.length > 0) {
+        setUnitTypes(types);
+        setForm((prev) => ({
+          ...prev,
+          unitType: types.includes(prev.unitType) ? prev.unitType : types[0],
+        }));
+      }
+    });
+
     // If backend has live properties, make sure we have the latest list
     apiClient.get('/properties?limit=100').then((res) => {
       const items = res?.items || res;
@@ -54,7 +69,9 @@ export default function AddUnit() {
     }).catch(() => {});
   }, []);
 
-  const update = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
+  const update = (key, value) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -62,6 +79,8 @@ export default function AddUnit() {
       return toast.error('Property, Unit #, and Market Rent are required');
     }
     const prop = properties.find((p) => String(p.id) === String(form.propertyId));
+    const bedsNum = Number(form.beds) || 1;
+    const bathsNum = Number(form.baths) || 1;
     const newUnit = {
       id: generateUnitId(),
       propertyId: Number(form.propertyId),
@@ -71,9 +90,10 @@ export default function AddUnit() {
       unitNumber: form.unitNumber,
       floor: Number(form.floor) || 1,
       size: Number(form.size) || 900,
-      bhk: `${form.beds} BD / ${form.baths} BA`,
-      beds: Number(form.beds) || 2,
-      baths: Number(form.baths) || 2,
+      bhk: form.unitType || `${bedsNum} BD / ${bathsNum} BA`,
+      unitType: form.unitType || `${bedsNum} BD / ${bathsNum} BA`,
+      beds: bedsNum,
+      baths: bathsNum,
       rent: Number(form.rent) || 2150,
       deposit: 0,
       maintenanceFee: 0,
@@ -97,8 +117,8 @@ export default function AddUnit() {
         propertyId: Number(form.propertyId),
         unitNumber: form.unitNumber,
         floor: Number(form.floor) || 1,
-        bedrooms: Number(form.beds) || 2,
-        bathrooms: Number(form.baths) || 2,
+        bedrooms: bedsNum,
+        bathrooms: bathsNum,
         sqft: Number(form.size) || 900,
         rentAmount: Number(form.rent) || 2150,
         depositAmount: Number(form.rent) || 2150,
@@ -106,6 +126,9 @@ export default function AddUnit() {
       });
     } catch (apiErr) {
       console.warn('[AddUnit] API save fallback:', apiErr.message);
+      if (apiErr.response?.data?.message) {
+        return toast.error(apiErr.response.data.message);
+      }
     }
 
     toast.success(`Unit ${form.unitNumber} added to ${newUnit.propertyName}`);
@@ -176,8 +199,8 @@ export default function AddUnit() {
               </div>
             </div>
 
-            {/* Row 2: Floor, Beds / Baths, Size (sq ft) */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-end">
+            {/* Row 2: Floor, Beds / Baths, Unit Type, Size (sq ft) */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
               <div>
                 <label className="block text-sm font-medium text-gray-800 mb-1.5">
                   Floor
@@ -207,7 +230,7 @@ export default function AddUnit() {
                       step={1}
                       placeholder="2 Bed"
                       value={form.beds}
-                      onChange={(e) => update('beds', e.target.value)}
+                      onChange={(e) => update('beds', e.target.value ? Math.floor(Math.abs(Number(e.target.value))) : '')}
                       className="w-full rounded-xl border border-gray-200 bg-white pl-9 pr-3 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
                       title="Number of Bedrooms (e.g. 1, 2, 3)"
                     />
@@ -219,14 +242,37 @@ export default function AddUnit() {
                     <input
                       type="number"
                       min={0}
-                      step={0.5}
+                      step={1}
                       placeholder="2 Bath"
                       value={form.baths}
-                      onChange={(e) => update('baths', e.target.value)}
+                      onChange={(e) => update('baths', e.target.value ? Math.floor(Math.abs(Number(e.target.value))) : '')}
                       className="w-full rounded-xl border border-gray-200 bg-white pl-9 pr-3 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
-                      title="Number of Bathrooms (e.g. 1, 1.5, 2, 2.5)"
+                      title="Number of Bathrooms (e.g. 1, 2, 3)"
                     />
                   </div>
+                </div>
+              </div>
+
+              {/* Unit Type Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-800 mb-1.5">
+                  Unit Type
+                </label>
+                <div className="relative">
+                  <select
+                    value={form.unitType}
+                    onChange={(e) => update('unitType', e.target.value)}
+                    className="w-full appearance-none rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 pr-9 text-sm text-gray-800 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20 cursor-pointer"
+                  >
+                    {unitTypes.length === 0 ? (
+                      <option value="">No unit types defined</option>
+                    ) : (
+                      unitTypes.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))
+                    )}
+                  </select>
+                  <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                 </div>
               </div>
 

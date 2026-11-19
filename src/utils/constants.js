@@ -28,17 +28,7 @@ export const UNIT_STATUSES = {
   TURNOVER: 'Turnover',
 };
 
-export const UNIT_TYPES = [
-  'Studio',
-  '1 BD / 1 BA',
-  '2 BD / 1 BA',
-  '2 BD / 2 BA',
-  '3 BD / 2 BA',
-  '3 BD / 2.5 BA',
-  '4+ BD Villa',
-  'Commercial Suite',
-  'Warehouse Bay',
-];
+export const UNIT_TYPES = [];
 
 export const COMPLAINT_STATUSES = {
   NEW: 'New',
