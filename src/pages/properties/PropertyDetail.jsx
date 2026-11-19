@@ -4,7 +4,7 @@ import apiClient from '../../services/apiClient';
 import {
   ArrowLeft, MapPin, Edit, Trash2, Users, DoorOpen, DollarSign,
   FileText, Building2, AlertCircle, Save, Layers, UserCheck, CheckCircle2,
-  Calendar, ShieldCheck, Tag, Home, Sparkles, Plus
+  Calendar, ShieldCheck, Tag, Home, Sparkles, Plus, X
 } from 'lucide-react';
 import PageHeader from '../../components/shared/PageHeader';
 import Card from '../../components/ui/Card';
@@ -22,6 +22,7 @@ import { getUnits, addUnit, deleteUnit } from '../../data/mockUnits';
 import { getTenants } from '../../data/mockTenants';
 import { formatCurrency, getStatusColor, formatDate } from '../../utils/formatters';
 import { AMENITIES, US_STATES } from '../../utils/constants';
+import { getAmenities, addAmenity as addAmenityToStore, deleteAmenity as deleteAmenityFromStore } from '../../utils/amenityStore';
 import { useTable } from '../../hooks/useTable';
 import toast from 'react-hot-toast';
 
@@ -55,7 +56,7 @@ function UnitsTab({ propertyId, propertyName, units: propUnits = [] }) {
           }));
           setFetchedUnits(formatted);
         }
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }, [propertyId, propUnits, propertyName]);
 
@@ -167,7 +168,7 @@ export default function PropertyDetail() {
           return [...items, ...extra];
         });
       }
-    }).catch(() => {});
+    }).catch(() => { });
 
     apiClient.get('/owners').then((res) => {
       const items = res?.items || res;
@@ -178,7 +179,7 @@ export default function PropertyDetail() {
           return [...items, ...extra];
         });
       }
-    }).catch(() => {});
+    }).catch(() => { });
   }, []);
 
   // Save edit form draft whenever fields change
@@ -186,7 +187,7 @@ export default function PropertyDetail() {
     if (isEditModalOpen && editForm && property?.id) {
       try {
         localStorage.setItem(`property_edit_draft_${property.id}`, JSON.stringify(editForm));
-      } catch {}
+      } catch { }
     }
   }, [isEditModalOpen, editForm, property?.id]);
 
@@ -222,8 +223,8 @@ export default function PropertyDetail() {
   const [newUnitForm, setNewUnitForm] = useState({
     unitNumber: '',
     floor: '',
-    beds: '2',
-    baths: '1',
+    beds: '',
+    baths: '',
     size: '',
     rent: '',
     status: 'Vacant',
@@ -378,7 +379,7 @@ export default function PropertyDetail() {
     try {
       const savedDraft = localStorage.getItem(draftKey);
       if (savedDraft) draft = JSON.parse(savedDraft);
-    } catch {}
+    } catch { }
 
     setEditForm({
       ...local,
@@ -444,7 +445,7 @@ export default function PropertyDetail() {
       rent: rentNum,
       rentAmount: rentNum,
       status: newUnitForm.status || 'Vacant',
-      building: editForm.buildingName || 'Main Building',
+      building: editForm.buildingName || '',
     };
 
     const created = await addUnit(unitPayload);
@@ -481,6 +482,10 @@ export default function PropertyDetail() {
     setEditForm((prev) => ({ ...prev, [key]: value }));
   };
 
+  const [availableAmenities, setAvailableAmenities] = useState(() => getAmenities());
+  const [showAddAmenityInModal, setShowAddAmenityInModal] = useState(false);
+  const [newAmenityInputInModal, setNewAmenityInputInModal] = useState('');
+
   const toggleEditAmenity = (amenity) => {
     setEditForm((prev) => {
       const list = Array.isArray(prev.amenities) ? prev.amenities : [];
@@ -489,6 +494,36 @@ export default function PropertyDetail() {
         : [...list, amenity];
       return { ...prev, amenities: next };
     });
+  };
+
+  const handleAddCustomAmenityInModal = () => {
+    const trimmed = newAmenityInputInModal.trim();
+    if (!trimmed) return;
+    const updated = addAmenityToStore(trimmed);
+    setAvailableAmenities(updated);
+    setEditForm((prev) => {
+      const list = Array.isArray(prev.amenities) ? prev.amenities : [];
+      return {
+        ...prev,
+        amenities: list.includes(trimmed) ? list : [...list, trimmed],
+      };
+    });
+    setNewAmenityInputInModal('');
+    setShowAddAmenityInModal(false);
+    toast.success(`Amenity "${trimmed}" added!`);
+  };
+
+  const handleDeleteAmenityInModal = (amenityToDelete) => {
+    const updated = deleteAmenityFromStore(amenityToDelete);
+    setAvailableAmenities(updated);
+    setEditForm((prev) => {
+      const list = Array.isArray(prev.amenities) ? prev.amenities : [];
+      return {
+        ...prev,
+        amenities: list.filter((a) => a !== amenityToDelete),
+      };
+    });
+    toast.success(`Amenity "${amenityToDelete}" removed`);
   };
 
   const handleUpdate = async () => {
@@ -573,7 +608,7 @@ export default function PropertyDetail() {
 
     try {
       localStorage.removeItem(`property_edit_draft_${property.id}`);
-    } catch {}
+    } catch { }
 
     // Sync manager assignment in custom_managers roster
     try {
@@ -588,7 +623,7 @@ export default function PropertyDetail() {
           });
         }
       }
-    } catch {}
+    } catch { }
 
     setIsEditModalOpen(false);
     toast.success(`Property "${updatedData.name}" updated successfully!`);
@@ -780,11 +815,10 @@ export default function PropertyDetail() {
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveEditTab(tab.id)}
-                  className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                    isActive
-                      ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'bg-gray-50 text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                  }`}
+                  className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${isActive
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'bg-gray-50 text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                    }`}
                 >
                   <Icon className="w-3.5 h-3.5" />
                   {tab.label}
@@ -1057,25 +1091,105 @@ export default function PropertyDetail() {
               </div>
 
               <div className="pt-2 border-t border-gray-100">
-                <label className="block text-xs font-bold text-gray-700 mb-2">Building Amenities (Standard)</label>
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700">
+                      Building Amenities ({availableAmenities.length})
+                    </label>
+                    <p className="text-[11px] text-gray-400">
+                      Click amenity to select/unselect. Click × to delete.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddAmenityInModal((v) => !v)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg bg-white border border-gray-200 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-200 shadow-sm transition-all cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Amenity</span>
+                  </button>
+                </div>
+
+                {showAddAmenityInModal && (
+                  <div className="flex items-center gap-2 mb-3 p-2 bg-gray-50 rounded-xl border border-indigo-100 shadow-xs">
+                    <input
+                      type="text"
+                      autoFocus
+                      placeholder="e.g., Rooftop Lounge, 24/7 Security, Balcony"
+                      value={newAmenityInputInModal}
+                      onChange={(e) => setNewAmenityInputInModal(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddCustomAmenityInModal();
+                        } else if (e.key === 'Escape') {
+                          setShowAddAmenityInModal(false);
+                          setNewAmenityInputInModal('');
+                        }
+                      }}
+                      className="flex-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs text-gray-800 placeholder:text-gray-400 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-400/20"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={handleAddCustomAmenityInModal}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-2.5 py-1"
+                    >
+                      Add
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAddAmenityInModal(false);
+                        setNewAmenityInputInModal('');
+                      }}
+                      className="text-gray-400 hover:text-gray-600 text-xs px-1.5 cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+
                 <div className="flex flex-wrap gap-2">
-                  {AMENITIES.map((amenity) => {
+                  {availableAmenities.map((amenity) => {
                     const isSelected = (Array.isArray(editForm.amenities) ? editForm.amenities : []).includes(amenity);
                     return (
-                      <button
+                      <div
                         key={amenity}
-                        type="button"
-                        onClick={() => toggleEditAmenity(amenity)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold border cursor-pointer transition-all ${
+                        className={`inline-flex items-center gap-1.5 pl-3 pr-2 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
                           isSelected
                             ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
                             : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
                         }`}
                       >
-                        {amenity}
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => toggleEditAmenity(amenity)}
+                          className="cursor-pointer text-left select-none"
+                        >
+                          {amenity}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteAmenityInModal(amenity);
+                          }}
+                          className={`rounded-full p-0.5 hover:bg-black/10 transition-colors cursor-pointer ${
+                            isSelected ? 'text-white/80 hover:text-white' : 'text-gray-400 hover:text-rose-500'
+                          }`}
+                          title={`Delete "${amenity}"`}
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     );
                   })}
+                  {availableAmenities.length === 0 && (
+                    <p className="text-xs text-gray-400 italic py-1">
+                      No amenities defined. Click "+ Add Amenity" above.
+                    </p>
+                  )}
                 </div>
               </div>
             </div>

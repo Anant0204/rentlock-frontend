@@ -131,21 +131,21 @@ export default function UnitDetail() {
     setEditForm({
       ...unit,
       propertyId: unit.propertyId || properties[0]?.id || 1,
-      propertyName: unit.propertyName || properties[0]?.name || 'Sunrise Residency',
-      building: unit.building || unit.block || 'Main Building',
+      propertyName: unit.propertyName || properties[0]?.name || 'Property',
+      building: unit.building || unit.block || '',
       unitNumber: unit.unitNumber || '',
-      floor: unit.floor || 1,
-      beds: unit.beds ?? unit.bedrooms ?? 1,
-      baths: unit.baths ?? (unit.bathrooms !== undefined ? Number(unit.bathrooms) : 1),
-      unitType: unit.bhk || `${unit.beds ?? unit.bedrooms ?? 1} BD / ${unit.baths ?? unit.bathrooms ?? 1} BA`,
-      bhk: unit.bhk || `${unit.beds ?? unit.bedrooms ?? 1} BD / ${unit.baths ?? unit.bathrooms ?? 1} BA`,
-      size: unit.size || unit.sqft || 900,
-      rent: unit.rent || unit.rentAmount || 2150,
+      floor: unit.floor ?? '',
+      beds: unit.beds ?? unit.bedrooms ?? '',
+      baths: unit.baths ?? (unit.bathrooms !== undefined ? Number(unit.bathrooms) : ''),
+      unitType: unit.bhk || unit.unitType || '',
+      bhk: unit.bhk || unit.unitType || '',
+      size: unit.size || unit.sqft || '',
+      rent: unit.rent || unit.rentAmount || '',
       parkingSlot: unit.parkingSlot || '',
       furnished: unit.furnished || 'Unfurnished',
       status: unit.status || 'Vacant',
-      recurringCharges: unit.recurringCharges?.length > 0 ? unit.recurringCharges : [{ id: 1, label: 'Pet Rent', amount: '' }],
-      meters: unit.meters?.length > 0 ? unit.meters : [{ id: 1, type: 'Electric', number: unit.meterNumber && unit.meterNumber !== '—' ? unit.meterNumber : '' }],
+      recurringCharges: unit.recurringCharges?.length > 0 ? unit.recurringCharges : [],
+      meters: unit.meters?.length > 0 ? unit.meters : (unit.meterNumber && unit.meterNumber !== '—' ? [{ id: 1, type: 'Electric', number: unit.meterNumber }] : []),
     });
     setIsEditModalOpen(true);
   };
@@ -260,8 +260,8 @@ export default function UnitDetail() {
         ...editForm,
         propertyId: Number(editForm.propertyId) || unit.propertyId,
         propertyName: prop?.name || editForm.propertyName || unit.propertyName,
-        building: editForm.building || 'Main Building',
-        block: editForm.building || 'Main Building',
+        building: editForm.building || '',
+        block: editForm.building || '',
         unitNumber: editForm.unitNumber,
         floor,
         bedrooms: beds,
@@ -864,15 +864,14 @@ export default function UnitDetail() {
                       />
                     </div>
                     <div className="col-span-1 text-right">
-                      {editForm.recurringCharges.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeEditRecurringCharge(c.id)}
-                          className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded-lg cursor-pointer transition-colors"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeEditRecurringCharge(c.id)}
+                        className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded-lg cursor-pointer transition-colors"
+                        title="Remove charge"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -1001,15 +1000,14 @@ export default function UnitDetail() {
                       />
                     </div>
                     <div className="col-span-1 text-right">
-                      {editForm.meters.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeEditMeter(m.id)}
-                          className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded-lg cursor-pointer transition-colors"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeEditMeter(m.id)}
+                        className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded-lg cursor-pointer transition-colors"
+                        title="Remove meter"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
                 ))}

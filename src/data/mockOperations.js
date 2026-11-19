@@ -172,19 +172,27 @@ export const saveParkingStalls = (stalls) => {
 export const assignParkingStall = (stallId, data) => {
   if (stallId) {
     const rawPlate = data.licensePlate || data.vehiclePlate;
+    const cleanTenantId = data.tenantId && !isNaN(Number(data.tenantId)) ? Number(data.tenantId) : null;
+    const cleanPropertyId = data.propertyId && !isNaN(Number(data.propertyId)) ? Number(data.propertyId) : undefined;
     apiClient.patch(`/operations/parking/${stallId}/assign`, {
-      tenantId: data.tenantId,
-      vehiclePlate: rawPlate,
       ...data,
+      tenantId: cleanTenantId,
+      propertyId: cleanPropertyId,
+      vehiclePlate: rawPlate,
     }).catch(() => {});
   }
   const current = getParkingStalls();
+  const isNowAssigned = Boolean(
+    data.assignedResident ||
+    (data.unitNumber && data.unitNumber !== 'Unassigned') ||
+    data.status === 'Assigned'
+  );
   const updated = current.map((stall) => {
-    if (stall.id === stallId) {
+    if (String(stall.id) === String(stallId) || (stall.spotNumber && stall.spotNumber === stallId)) {
       return {
         ...stall,
         ...data,
-        status: data.assignedResident ? 'Assigned' : 'Vacant · Available',
+        status: isNowAssigned ? 'Assigned' : 'Vacant · Available',
       };
     }
     return stall;

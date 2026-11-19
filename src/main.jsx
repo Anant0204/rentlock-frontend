@@ -36,6 +36,23 @@ if (!localStorage.getItem(PURGE_FLAG)) {
   localStorage.setItem(PURGE_FLAG, 'true');
 }
 
+// Globally prevent mouse wheel from changing input[type=number] values anywhere in the app
+if (typeof window !== 'undefined') {
+  window.addEventListener(
+    'wheel',
+    () => {
+      if (
+        document.activeElement &&
+        document.activeElement.tagName === 'INPUT' &&
+        document.activeElement.type === 'number'
+      ) {
+        document.activeElement.blur();
+      }
+    },
+    { passive: true }
+  );
+}
+
 createRoot(document.getElementById('root')).render(
   <App />
 )

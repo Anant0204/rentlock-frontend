@@ -24,6 +24,10 @@ export default function Input({
         )}
         <input
           type={isPassword && showPassword ? 'text' : type}
+          onWheel={(e) => {
+            if (type === 'number') e.target.blur();
+            props.onWheel?.(e);
+          }}
           className={`
             w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-gray-800
             placeholder:text-gray-400 outline-none transition-all duration-200

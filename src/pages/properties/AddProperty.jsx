@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Building2, MapPin, Layers, DollarSign, CheckCircle2,
-  ChevronRight, ChevronLeft, Plus, Trash2, Sparkles, Upload, Bed, Bath, Car
+  ChevronRight, ChevronLeft, Plus, Trash2, Sparkles, Upload, Bed, Bath, Car, X
 } from 'lucide-react';
 import PageHeader from '../../components/shared/PageHeader';
 import Card from '../../components/ui/Card';
@@ -13,6 +13,7 @@ import FileUpload from '../../components/ui/FileUpload';
 import Badge from '../../components/ui/Badge';
 import Modal from '../../components/ui/Modal';
 import { AMENITIES, US_STATES, UNIT_TYPES } from '../../utils/constants';
+import { getAmenities, addAmenity as addAmenityToStore, deleteAmenity as deleteAmenityFromStore } from '../../utils/amenityStore';
 import { formatCurrency } from '../../utils/formatters';
 import { getOwners, getManagers, addOwner, addManager, updateManager } from '../../data/mockExtra';
 import { getParkingStalls, saveParkingStalls } from '../../data/mockOperations';
@@ -45,7 +46,7 @@ export default function AddProperty() {
           return [...items, ...extra];
         });
       }
-    }).catch(() => {});
+    }).catch(() => { });
 
     // Fetch live owners
     apiClient.get('/owners').then((res) => {
@@ -57,7 +58,7 @@ export default function AddProperty() {
           return [...items, ...extra];
         });
       }
-    }).catch(() => {});
+    }).catch(() => { });
   }, []);
 
   const [currentStep, setCurrentStep] = useState(() => {
@@ -67,7 +68,7 @@ export default function AddProperty() {
         const parsed = JSON.parse(saved);
         if (typeof parsed.currentStep === 'number') return parsed.currentStep;
       }
-    } catch {}
+    } catch { }
     return 0;
   });
 
@@ -105,7 +106,7 @@ export default function AddProperty() {
         const parsed = JSON.parse(saved);
         if (parsed.form) return parsed.form;
       }
-    } catch {}
+    } catch { }
     return {
       name: '',
       code: '',
@@ -143,7 +144,7 @@ export default function AddProperty() {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed.ownershipRows) && parsed.ownershipRows.length > 0) return parsed.ownershipRows;
       }
-    } catch {}
+    } catch { }
     return [
       { ownerId: 1, name: '', share: 100 },
     ];
@@ -156,9 +157,13 @@ export default function AddProperty() {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed.selectedAmenities)) return parsed.selectedAmenities;
       }
-    } catch {}
+    } catch { }
     return ['Parking', 'Controlled Access'];
   });
+
+  const [availableAmenities, setAvailableAmenities] = useState(() => getAmenities());
+  const [showAddAmenity, setShowAddAmenity] = useState(false);
+  const [newAmenityInput, setNewAmenityInput] = useState('');
 
   const [unitInventory, setUnitInventory] = useState(() => {
     try {
@@ -167,7 +172,7 @@ export default function AddProperty() {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed.unitInventory)) return parsed.unitInventory;
       }
-    } catch {}
+    } catch { }
     return [];
   });
 
@@ -178,7 +183,7 @@ export default function AddProperty() {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed.parkingStalls)) return parsed.parkingStalls;
       }
-    } catch {}
+    } catch { }
     return [];
   });
 
@@ -205,6 +210,7 @@ export default function AddProperty() {
   const [newUnit, setNewUnit] = useState({ unitNumber: '', floor: '', beds: '', baths: '', type: '', size: '', rent: '' });
   const [improvements, setImprovements] = useState([]);
   const [newImp, setNewImp] = useState({ item: '', date: '', cost: '' });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Auto-save draft whenever inputs change so accidental close/refresh never loses data
   useEffect(() => {
@@ -220,7 +226,7 @@ export default function AddProperty() {
           currentStep,
         })
       );
-    } catch {}
+    } catch { }
   }, [form, ownershipRows, selectedAmenities, unitInventory, parkingStalls, currentStep]);
 
   const update = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
@@ -248,6 +254,24 @@ export default function AddProperty() {
 
   const toggleAmenity = (amenity) => {
     setSelectedAmenities((prev) => (prev.includes(amenity) ? prev.filter((a) => a !== amenity) : [...prev, amenity]));
+  };
+
+  const handleAddCustomAmenity = () => {
+    const trimmed = newAmenityInput.trim();
+    if (!trimmed) return;
+    const updated = addAmenityToStore(trimmed);
+    setAvailableAmenities(updated);
+    setSelectedAmenities((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
+    setNewAmenityInput('');
+    setShowAddAmenity(false);
+    toast.success(`Amenity "${trimmed}" added!`);
+  };
+
+  const handleDeleteAmenity = (amenityToDelete) => {
+    const updated = deleteAmenityFromStore(amenityToDelete);
+    setAvailableAmenities(updated);
+    setSelectedAmenities((prev) => prev.filter((a) => a !== amenityToDelete));
+    toast.success(`Amenity "${amenityToDelete}" removed`);
   };
 
   const addOwnershipRow = () => {
@@ -364,7 +388,7 @@ export default function AddProperty() {
       size: sizeNum,
       rent: rentNum,
       status: 'Vacant',
-      building: form.buildingName || 'Main Building',
+      building: form.buildingName || '',
     };
 
     setUnitInventory((prev) => [...prev, unitToAdd]);
@@ -435,7 +459,7 @@ export default function AddProperty() {
         const list = JSON.parse(saved);
         const filtered = list.filter((u) => u.id !== unitToRemove.id && u.unitNumber !== unitToRemove.unitNumber);
         localStorage.setItem('custom_units', JSON.stringify(filtered));
-      } catch {}
+      } catch { }
     }
 
     // 3. Delete from MySQL database via DELETE /api/v1/units/:id
@@ -554,14 +578,14 @@ export default function AddProperty() {
       prev.map((s) =>
         s.id === stallId
           ? {
-              ...s,
-              assignedResident: null,
-              unitNumber: 'Unassigned',
-              vehicle: '—',
-              licensePlate: '—',
-              permitTag: '—',
-              status: 'Vacant · Available',
-            }
+            ...s,
+            assignedResident: null,
+            unitNumber: 'Unassigned',
+            vehicle: '—',
+            licensePlate: '—',
+            permitTag: '—',
+            status: 'Vacant · Available',
+          }
           : s
       )
     );
@@ -578,6 +602,8 @@ export default function AddProperty() {
   };
 
   const handleSave = async (draftOnly = false) => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     const fullAddress = `${form.street || '123 Main St'}, ${form.city || 'Brooklyn'}, ${form.state || 'NY'} ${form.zip || '11215'}`;
     const newProperty = {
       id: savedPropertyId || Date.now(),
@@ -633,7 +659,7 @@ export default function AddProperty() {
       ...u,
       propertyId: newProperty.id,
       propertyName: newProperty.name,
-      building: form.buildingName || 'Main Building',
+      building: form.buildingName || '',
     }));
     localStorage.setItem('custom_units', JSON.stringify([...existingUnits.filter((u) => u.propertyId !== newProperty.id), ...newUnitsFormatted]));
 
@@ -701,7 +727,7 @@ export default function AddProperty() {
         const combinedStalls = [...mappedNewStalls, ...existingStalls.filter((es) => es.propertyName !== newProperty.name)];
         saveParkingStalls(combinedStalls);
         mappedNewStalls.forEach((st) => {
-          apiClient.post('/operations/parking', st).catch(() => {});
+          apiClient.post('/operations/parking', st).catch(() => { });
         });
       }
 
@@ -718,20 +744,22 @@ export default function AddProperty() {
             });
           }
         }
-      } catch {}
+      } catch { }
     } catch (apiErr) {
       console.warn('[AddProperty] API save fallback:', apiErr.message);
     }
 
     try {
       localStorage.removeItem(DRAFT_KEY);
-    } catch {}
+    } catch { }
 
+    setIsSubmitting(false);
     toast.success('Property & Units created successfully!');
     navigate('/properties');
   };
 
   const handleNext = () => {
+    if (isSubmitting) return;
     if (!isStepValid()) {
       if (currentStep === 1 && Math.abs(ownershipTotal - 100) >= 0.01) {
         return toast.error(`Ownership shares must total 100.00% (currently ${ownershipTotal.toFixed(2)}%)`);
@@ -774,15 +802,23 @@ export default function AddProperty() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="secondary" onClick={() => setCurrentStep((s) => Math.max(0, s - 1))} icon={ChevronLeft} disabled={currentStep === 0}>
+              <Button
+                variant="secondary"
+                onClick={() => setCurrentStep((s) => Math.max(0, s - 1))}
+                icon={ChevronLeft}
+                disabled={currentStep === 0 || isSubmitting}
+              >
                 Back
               </Button>
               <Button
                 onClick={handleNext}
+                disabled={isSubmitting}
                 icon={currentStep === STEPS.length - 1 ? CheckCircle2 : ChevronRight}
                 className={currentStep === STEPS.length - 1 ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-indigo-600 hover:bg-indigo-700'}
               >
-                {currentStep === STEPS.length - 1 ? 'Create Property' : 'Continue'}
+                {isSubmitting
+                  ? (currentStep === STEPS.length - 1 ? 'Creating Property...' : 'Saving...')
+                  : (currentStep === STEPS.length - 1 ? 'Create Property' : 'Continue')}
               </Button>
             </div>
           </div>
@@ -921,20 +957,103 @@ export default function AddProperty() {
                 </div>
 
                 <div className="p-4 bg-gray-50/70 rounded-2xl border border-gray-100">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-gray-600 mb-3">Building Amenities (11 Standard)</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {AMENITIES.map((amenity) => (
-                      <button
-                        key={amenity}
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                    <div>
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-gray-700">
+                        Building Amenities ({availableAmenities.length})
+                      </h4>
+                      <p className="text-[11px] text-gray-400">
+                        Click amenity to select/unselect. Click × to delete.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddAmenity((v) => !v)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-white border border-gray-200 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-200 shadow-sm transition-all cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add Amenity</span>
+                    </button>
+                  </div>
+
+                  {showAddAmenity && (
+                    <div className="flex items-center gap-2 mb-3.5 p-2.5 bg-white rounded-xl border border-indigo-100 shadow-xs">
+                      <input
+                        type="text"
+                        autoFocus
+                        placeholder="e.g., Rooftop Lounge, 24/7 Security, Balcony"
+                        value={newAmenityInput}
+                        onChange={(e) => setNewAmenityInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddCustomAmenity();
+                          } else if (e.key === 'Escape') {
+                            setShowAddAmenity(false);
+                            setNewAmenityInput('');
+                          }
+                        }}
+                        className="flex-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-800 placeholder:text-gray-400 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-400/20"
+                      />
+                      <Button
                         type="button"
-                        onClick={() => toggleAmenity(amenity)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold border cursor-pointer transition-all ${
-                          selectedAmenities.includes(amenity) ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
-                        }`}
+                        size="sm"
+                        onClick={handleAddCustomAmenity}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3 py-1.5"
                       >
-                        {amenity}
+                        Add
+                      </Button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowAddAmenity(false);
+                          setNewAmenityInput('');
+                        }}
+                        className="text-gray-400 hover:text-gray-600 text-xs px-2 py-1 cursor-pointer"
+                      >
+                        Cancel
                       </button>
-                    ))}
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap gap-2">
+                    {availableAmenities.map((amenity) => {
+                      const isSelected = selectedAmenities.includes(amenity);
+                      return (
+                        <div
+                          key={amenity}
+                          className={`inline-flex items-center gap-1.5 pl-3 pr-2 py-1.5 rounded-xl text-xs font-semibold border transition-all ${isSelected
+                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                            : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+                            }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => toggleAmenity(amenity)}
+                            className="cursor-pointer text-left select-none"
+                          >
+                            {amenity}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteAmenity(amenity);
+                            }}
+                            className={`rounded-full p-0.5 hover:bg-black/10 transition-colors cursor-pointer ${isSelected ? 'text-white/80 hover:text-white' : 'text-gray-400 hover:text-rose-500'
+                              }`}
+                            title={`Delete "${amenity}"`}
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {availableAmenities.length === 0 && (
+                      <p className="text-xs text-gray-400 italic py-2">
+                        No amenities defined. Click "+ Add Amenity" above to create building amenities.
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -976,6 +1095,7 @@ export default function AddProperty() {
                             step={1}
                             placeholder="2 Bed"
                             value={newUnit.beds}
+                            onWheel={(e) => e.target.blur()}
                             onChange={(e) => {
                               const val = e.target.value;
                               setNewUnit((prev) => ({
@@ -997,6 +1117,7 @@ export default function AddProperty() {
                             step={0.5}
                             placeholder="1 Bath"
                             value={newUnit.baths}
+                            onWheel={(e) => e.target.blur()}
                             onChange={(e) => {
                               const val = e.target.value;
                               setNewUnit((prev) => ({

@@ -4,7 +4,38 @@ export const getProperties = () => {
   const saved = localStorage.getItem('custom_properties');
   if (saved) {
     try {
-      return JSON.parse(saved);
+      const items = JSON.parse(saved);
+      if (Array.isArray(items)) {
+        // Automatic deduplication: keep only one property per unique name
+        const seenNames = new Set();
+        const deduplicated = [];
+        const duplicatesToDelete = [];
+
+        items.forEach((p) => {
+          if (!p) return;
+          const key = (p.name || '').trim().toLowerCase();
+          if (key && !seenNames.has(key)) {
+            seenNames.add(key);
+            deduplicated.push(p);
+          } else if (key) {
+            duplicatesToDelete.push(p);
+          } else {
+            deduplicated.push(p);
+          }
+        });
+
+        if (duplicatesToDelete.length > 0) {
+          localStorage.setItem('custom_properties', JSON.stringify(deduplicated));
+          // Clean up duplicates in background if backend API is reachable
+          duplicatesToDelete.forEach((dp) => {
+            if (dp.id && !String(dp.id).startsWith('temp')) {
+              apiClient.delete(`/properties/${dp.id}`).catch(() => {});
+            }
+          });
+        }
+        return deduplicated;
+      }
+      return [];
     } catch {
       return [];
     }

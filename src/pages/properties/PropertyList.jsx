@@ -21,8 +21,29 @@ export default function PropertyList() {
       const items = res?.items || res;
       if (Array.isArray(items)) {
         const localList = getProperties();
-        const merged = items.map((p) => {
-          const local = localList.find((l) => String(l.id) === String(p.id));
+
+        // Deduplicate incoming backend items by property name
+        const seenNames = new Set();
+        const uniqueItems = [];
+        const duplicates = [];
+
+        items.forEach((item) => {
+          const nameKey = (item.name || '').trim().toLowerCase();
+          if (nameKey && seenNames.has(nameKey)) {
+            duplicates.push(item);
+          } else {
+            if (nameKey) seenNames.add(nameKey);
+            uniqueItems.push(item);
+          }
+        });
+
+        // Clean up duplicate entries from backend in background
+        duplicates.forEach((d) => {
+          if (d.id) apiClient.delete(`/properties/${d.id}`).catch(() => {});
+        });
+
+        const merged = uniqueItems.map((p) => {
+          const local = localList.find((l) => String(l.id) === String(p.id) || l.name?.toLowerCase() === p.name?.toLowerCase());
           return {
             ...local,
             ...p,
@@ -69,6 +90,16 @@ export default function PropertyList() {
     } else if (sortBy === 'Newest') {
       result = [...result].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     }
+
+    // Deduplicate by property name to ensure no multiple cards appear
+    const seenMap = new Set();
+    result = result.filter((p) => {
+      const key = (p.name || '').trim().toLowerCase();
+      if (!key) return true;
+      if (seenMap.has(key)) return false;
+      seenMap.add(key);
+      return true;
+    });
 
     return result;
   }, [searchQuery, activeTab, sortBy, allProperties]);

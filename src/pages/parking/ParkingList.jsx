@@ -128,11 +128,19 @@ export default function ParkingList() {
     monthlyFee: '',
   });
 
+  const isStallAssigned = (s) => Boolean(
+    (s.assignedResident && s.assignedResident.trim() && s.assignedResident !== 'Unassigned') ||
+    s.assignedTenantId ||
+    s.status === 'Assigned' ||
+    (s.unitNumber && s.unitNumber !== 'Unassigned')
+  );
+
   const filtered = useMemo(() => {
     return stalls.filter((s) => {
-      if (activeTab === 'assigned' && !s.assignedResident) return false;
+      const isAssigned = isStallAssigned(s);
+      if (activeTab === 'assigned' && !isAssigned) return false;
       const spotType = s.spotType || s.stallType || '';
-      if (activeTab === 'vacant' && (s.assignedResident || s.assignedTenantId)) return false;
+      if (activeTab === 'vacant' && isAssigned) return false;
       if (activeTab === 'ev' && !spotType.includes('EV')) return false;
       if (activeTab === 'visitor' && !spotType.includes('Visitor')) return false;
 
@@ -151,8 +159,8 @@ export default function ParkingList() {
 
   const stats = useMemo(() => {
     const total = stalls.length;
-    const assigned = stalls.filter((s) => (s.assignedResident || s.assignedTenantId) && !(s.spotType || s.stallType || '').includes('Visitor')).length;
-    const vacant = stalls.filter((s) => !s.assignedResident && !s.assignedTenantId).length;
+    const assigned = stalls.filter((s) => isStallAssigned(s) && !(s.spotType || s.stallType || '').includes('Visitor')).length;
+    const vacant = stalls.filter((s) => !isStallAssigned(s)).length;
     const evCount = stalls.filter((s) => (s.spotType || s.stallType || '').includes('EV')).length;
     return { total, assigned, vacant, evCount };
   }, [stalls]);
@@ -246,24 +254,29 @@ export default function ParkingList() {
 
   const handleAssignSubmit = (e) => {
     e.preventDefault();
-    if (!form.assignedResident.trim() || !form.licensePlate.trim()) {
-      toast.error('Resident name and vehicle license plate are required.');
-      return;
-    }
+    const assignedRes = form.assignedResident.trim() || (form.unitNumber ? `Resident (Unit ${form.unitNumber})` : 'Assigned Resident');
+    const vehicleName = form.vehicle.trim() || 'Toyota Camry (Black)';
+    const plateNumber = form.licensePlate.trim() || 'NY · KJH-9021';
+    const tagNumber = form.permitTag.trim() || 'PRM-2026-003';
+
+    const cleanTenantId = form.tenantId && !isNaN(Number(form.tenantId)) ? Number(form.tenantId) : null;
+    const cleanPropId = form.propertyId && !isNaN(Number(form.propertyId)) ? Number(form.propertyId) : (selectedStall?.propertyId ? Number(selectedStall.propertyId) : undefined);
+
     const updated = assignParkingStall(selectedStall.id, {
-      propertyName: form.propertyName,
-      propertyId: form.propertyId,
-      tenantId: form.tenantId || null,
-      assignedResident: form.assignedResident.trim(),
-      unitNumber: form.unitNumber.trim(),
-      vehicle: form.vehicle.trim(),
-      licensePlate: form.licensePlate.trim(),
-      permitTag: form.permitTag.trim(),
-      monthlyFee: Number(form.monthlyFee) || 0,
+      propertyName: form.propertyName || selectedStall?.propertyName || 'General Portfolio',
+      propertyId: cleanPropId,
+      tenantId: cleanTenantId,
+      assignedResident: assignedRes,
+      unitNumber: form.unitNumber.trim() || 'Unassigned',
+      vehicle: vehicleName,
+      licensePlate: plateNumber,
+      permitTag: tagNumber,
+      monthlyFee: Number(form.monthlyFee) || 150,
+      status: 'Assigned',
     });
     setStalls(updated);
     setIsAssignOpen(false);
-    toast.success(`Stall ${selectedStall.spotNumber} assigned to ${form.assignedResident}!`);
+    toast.success(`Stall ${selectedStall.spotNumber} assigned to ${assignedRes}!`);
   };
 
   const handleConfirmRelease = () => {
@@ -468,7 +481,7 @@ export default function ParkingList() {
         /* CARDS VIEW - Visual, Intuitive Parking Slots */
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           {filtered.map((s) => {
-            const isAssigned = Boolean(s.assignedResident || s.assignedTenantId);
+            const isAssigned = isStallAssigned(s);
             const spotType = s.spotType || s.stallType || '';
             const isEv = spotType.includes('EV');
             const isVisitor = spotType.includes('Visitor');
@@ -551,7 +564,11 @@ export default function ParkingList() {
                       <div>
                         <span className="text-[10px] text-gray-400 block uppercase font-bold">Resident</span>
                         <div className="flex items-center justify-between">
-                          <strong className="text-gray-900">{s.assignedResident}</strong>
+                          <strong className="text-gray-900">
+                            {s.assignedResident && s.assignedResident !== 'Unassigned'
+                              ? s.assignedResident
+                              : (s.unitNumber && s.unitNumber !== 'Unassigned' ? `Resident (Unit ${s.unitNumber})` : 'Assigned')}
+                          </strong>
                           <span className="text-[11px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
                             Unit {s.unitNumber}
                           </span>
@@ -642,7 +659,7 @@ export default function ParkingList() {
               </thead>
               <tbody className="divide-y divide-gray-100 text-gray-700">
                 {filtered.map((s) => {
-                  const isAssigned = Boolean(s.assignedResident);
+                  const isAssigned = isStallAssigned(s);
                   const isEv = s.spotType.includes('EV');
 
                   return (
@@ -673,7 +690,11 @@ export default function ParkingList() {
                       <td className="py-3.5 px-4">
                         {isAssigned ? (
                           <div>
-                            <p className="font-bold text-gray-900">{s.assignedResident}</p>
+                            <p className="font-bold text-gray-900">
+                              {s.assignedResident && s.assignedResident !== 'Unassigned'
+                                ? s.assignedResident
+                                : (s.unitNumber && s.unitNumber !== 'Unassigned' ? `Resident (Unit ${s.unitNumber})` : 'Assigned')}
+                            </p>
                             <p className="text-[11px] text-indigo-600 font-semibold mt-0.5">Unit {s.unitNumber}</p>
                           </div>
                         ) : (

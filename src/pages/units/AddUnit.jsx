@@ -27,27 +27,24 @@ export default function AddUnit() {
   const [unitTypes, setUnitTypes] = useState(initialUnitTypes);
 
   const [form, setForm] = useState({
-    propertyId: properties[0]?.id || 1,
+    propertyId: properties[0]?.id || '',
     unitNumber: '',
-    building: 'Main Building',
-    floor: '1',
-    size: '900',
-    beds: '2',
-    baths: '2',
-    unitType: initialUnitTypes[0] || 'Studio',
-    rent: '2150',
+    building: '',
+    floor: '',
+    size: '',
+    beds: '',
+    baths: '',
+    unitType: '',
+    rent: '',
     parkingSlot: '',
     furnished: 'Unfurnished',
     status: 'Vacant',
   });
 
-  const [recurringCharges, setRecurringCharges] = useState([
-    { id: 1, label: 'Pet Rent', amount: '' },
-  ]);
-  const [meters, setMeters] = useState([
-    { id: 1, type: 'Electric', number: '' },
-  ]);
+  const [recurringCharges, setRecurringCharges] = useState([]);
+  const [meters, setMeters] = useState([]);
   const [parkingStalls, setParkingStalls] = useState(() => getParkingStalls());
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     fetchUnitTypesFromBackend().then((types) => {
@@ -55,7 +52,7 @@ export default function AddUnit() {
         setUnitTypes(types);
         setForm((prev) => ({
           ...prev,
-          unitType: types.includes(prev.unitType) ? prev.unitType : types[0],
+          unitType: prev.unitType && types.includes(prev.unitType) ? prev.unitType : prev.unitType,
         }));
       }
     });
@@ -102,31 +99,37 @@ export default function AddUnit() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (!form.propertyId || !form.unitNumber || !form.rent) {
       return toast.error('Property, Unit #, and Market Rent are required');
     }
+    setIsSubmitting(true);
     const prop = properties.find((p) => String(p.id) === String(form.propertyId));
-    const bedsNum = Number(form.beds) || 1;
-    const bathsNum = Number(form.baths) || 1;
+    const bedsNum = form.beds !== '' ? Number(form.beds) : 1;
+    const bathsNum = form.baths !== '' ? Number(form.baths) : 1;
+    const floorNum = form.floor !== '' ? Number(form.floor) : 1;
+    const sizeNum = form.size !== '' ? Number(form.size) : 0;
+    const rentNum = Number(form.rent) || 0;
+
     const newUnit = {
       id: generateUnitId(),
       propertyId: Number(form.propertyId),
-      propertyName: prop?.name || 'Sunrise Residency',
-      building: form.building,
-      block: form.building,
+      propertyName: prop?.name || 'Property',
+      building: form.building || '',
+      block: form.building || '',
       unitNumber: form.unitNumber,
-      floor: Number(form.floor) || 1,
-      size: Number(form.size) || 900,
-      bhk: form.unitType || `${bedsNum} BD / ${bathsNum} BA`,
-      unitType: form.unitType || `${bedsNum} BD / ${bathsNum} BA`,
-      beds: bedsNum,
-      baths: bathsNum,
-      rent: Number(form.rent) || 2150,
+      floor: floorNum,
+      size: sizeNum,
+      bhk: form.unitType || (form.beds !== '' ? `${bedsNum} BD / ${bathsNum} BA` : 'Studio'),
+      unitType: form.unitType || (form.beds !== '' ? `${bedsNum} BD / ${bathsNum} BA` : 'Studio'),
+      beds: form.beds !== '' ? bedsNum : 0,
+      baths: form.baths !== '' ? bathsNum : 0,
+      rent: rentNum,
       deposit: 0,
       maintenanceFee: 0,
       recurringCharges: recurringCharges.filter((c) => c.label && c.amount).map((c) => ({ ...c, amount: Number(c.amount) })),
       meters: meters.filter((m) => m.number),
-      meterNumber: meters[0]?.number || '—',
+      meterNumber: meters.find((m) => m.number)?.number || '—',
       parkingSlot: form.parkingSlot || null,
       furnished: form.furnished,
       status: form.status,
@@ -144,9 +147,10 @@ export default function AddUnit() {
       if (stallMatch) {
         assignParkingStall(stallMatch.id, {
           unitNumber: form.unitNumber,
-          propertyName: prop?.name || 'Sunrise Residency',
+          propertyName: prop?.name || 'Property',
           propertyId: Number(form.propertyId),
           assignedResident: `Unit ${form.unitNumber} Resident`,
+          status: 'Assigned',
         });
       }
     }
@@ -156,21 +160,24 @@ export default function AddUnit() {
       await apiClient.post('/units', {
         propertyId: Number(form.propertyId),
         unitNumber: form.unitNumber,
-        floor: Number(form.floor) || 1,
+        floor: floorNum,
         bedrooms: bedsNum,
         bathrooms: bathsNum,
-        sqft: Number(form.size) || 900,
-        rentAmount: Number(form.rent) || 2150,
-        depositAmount: Number(form.rent) || 2150,
+        sqft: sizeNum,
+        rentAmount: rentNum,
+        depositAmount: rentNum,
         status: form.status || 'Vacant',
+        parkingSlot: form.parkingSlot || null,
       });
     } catch (apiErr) {
       console.warn('[AddUnit] API save fallback:', apiErr.message);
       if (apiErr.response?.data?.message) {
+        setIsSubmitting(false);
         return toast.error(apiErr.response.data.message);
       }
     }
 
+    setIsSubmitting(false);
     toast.success(`Unit ${form.unitNumber} added to ${newUnit.propertyName}`);
     navigate('/units');
   };
@@ -204,7 +211,7 @@ export default function AddUnit() {
                     className="w-full appearance-none rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 pr-9 text-sm text-gray-800 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20 cursor-pointer"
                   >
                     {properties.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name.toLowerCase()}</option>
+                      <option key={p.id} value={p.id}>{p.name}</option>
                     ))}
                   </select>
                   <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -217,7 +224,7 @@ export default function AddUnit() {
                 </label>
                 <input
                   type="text"
-                  placeholder="Main Building"
+                  placeholder="e.g., Main Building or Tower A"
                   value={form.building}
                   onChange={(e) => update('building', e.target.value)}
                   className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
@@ -248,8 +255,9 @@ export default function AddUnit() {
                 <input
                   type="number"
                   min={0}
-                  placeholder="1"
+                  placeholder="e.g., 1"
                   value={form.floor}
+                  onWheel={(e) => e.target.blur()}
                   onChange={(e) => update('floor', e.target.value)}
                   className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
                 />
@@ -268,8 +276,9 @@ export default function AddUnit() {
                       type="number"
                       min={0}
                       step={1}
-                      placeholder="2 Bed"
+                      placeholder="e.g., 2"
                       value={form.beds}
+                      onWheel={(e) => e.target.blur()}
                       onChange={(e) => update('beds', e.target.value ? Math.floor(Math.abs(Number(e.target.value))) : '')}
                       className="w-full rounded-xl border border-gray-200 bg-white pl-9 pr-3 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
                       title="Number of Bedrooms (e.g. 1, 2, 3)"
@@ -283,8 +292,9 @@ export default function AddUnit() {
                       type="number"
                       min={0}
                       step={1}
-                      placeholder="2 Bath"
+                      placeholder="e.g., 1"
                       value={form.baths}
+                      onWheel={(e) => e.target.blur()}
                       onChange={(e) => update('baths', e.target.value ? Math.floor(Math.abs(Number(e.target.value))) : '')}
                       className="w-full rounded-xl border border-gray-200 bg-white pl-9 pr-3 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
                       title="Number of Bathrooms (e.g. 1, 2, 3)"
@@ -304,13 +314,10 @@ export default function AddUnit() {
                     onChange={(e) => update('unitType', e.target.value)}
                     className="w-full appearance-none rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 pr-9 text-sm text-gray-800 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20 cursor-pointer"
                   >
-                    {unitTypes.length === 0 ? (
-                      <option value="">No unit types defined</option>
-                    ) : (
-                      unitTypes.map((t) => (
-                        <option key={t} value={t}>{t}</option>
-                      ))
-                    )}
+                    <option value="">Select Unit Type</option>
+                    {unitTypes.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
                   </select>
                   <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                 </div>
@@ -323,8 +330,9 @@ export default function AddUnit() {
                 <input
                   type="number"
                   min={0}
-                  placeholder="900"
+                  placeholder="e.g., 900"
                   value={form.size}
+                  onWheel={(e) => e.target.blur()}
                   onChange={(e) => update('size', e.target.value)}
                   className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
                 />
@@ -346,8 +354,9 @@ export default function AddUnit() {
                 <input
                   type="number"
                   required
-                  placeholder="$2,150"
+                  placeholder="e.g., 2150"
                   value={form.rent}
+                  onWheel={(e) => e.target.blur()}
                   onChange={(e) => update('rent', e.target.value)}
                   className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
                 />
@@ -384,37 +393,44 @@ export default function AddUnit() {
               </button>
             </div>
 
-            {recurringCharges.map((row) => (
-              <div key={row.id} className="grid grid-cols-12 gap-3 items-center">
-                <div className="col-span-6">
-                  <input
-                    type="text"
-                    placeholder="Pet Rent"
-                    value={row.label}
-                    onChange={(e) => setRecurringCharges((prev) => prev.map((r) => (r.id === row.id ? { ...r, label: e.target.value } : r)))}
-                    className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
-                  />
-                </div>
-                <div className="col-span-5">
-                  <input
-                    type="number"
-                    placeholder="$/month"
-                    value={row.amount}
-                    onChange={(e) => setRecurringCharges((prev) => prev.map((r) => (r.id === row.id ? { ...r, amount: e.target.value } : r)))}
-                    className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
-                  />
-                </div>
-                <div className="col-span-1 text-right">
-                  <button
-                    type="button"
-                    onClick={() => setRecurringCharges((prev) => prev.filter((r) => r.id !== row.id))}
-                    className="text-red-500 hover:text-red-700 p-1.5 hover:bg-red-50 rounded-lg cursor-pointer transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
+            {recurringCharges.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-gray-200 p-4 text-center text-xs text-gray-400">
+                No optional recurring charges added. Click "+ Add Charge" if this unit has recurring fees (e.g. Pet Rent, Storage).
               </div>
-            ))}
+            ) : (
+              recurringCharges.map((row) => (
+                <div key={row.id} className="grid grid-cols-12 gap-3 items-center">
+                  <div className="col-span-6">
+                    <input
+                      type="text"
+                      placeholder="e.g., Pet Rent"
+                      value={row.label}
+                      onChange={(e) => setRecurringCharges((prev) => prev.map((r) => (r.id === row.id ? { ...r, label: e.target.value } : r)))}
+                      className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
+                    />
+                  </div>
+                  <div className="col-span-5">
+                    <input
+                      type="number"
+                      placeholder="e.g., 50"
+                      value={row.amount}
+                      onChange={(e) => setRecurringCharges((prev) => prev.map((r) => (r.id === row.id ? { ...r, amount: e.target.value } : r)))}
+                      className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
+                    />
+                  </div>
+                  <div className="col-span-1 text-right">
+                    <button
+                      type="button"
+                      onClick={() => setRecurringCharges((prev) => prev.filter((r) => r.id !== row.id))}
+                      className="text-red-500 hover:text-red-700 p-1.5 hover:bg-red-50 rounded-lg cursor-pointer transition-colors"
+                      title="Remove charge"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </Card>
 
@@ -492,7 +508,7 @@ export default function AddUnit() {
               </p>
               <button
                 type="button"
-                onClick={() => setMeters((prev) => [...prev, { id: generateUnitId(), type: 'Gas', number: '' }])}
+                onClick={() => setMeters((prev) => [...prev, { id: generateUnitId(), type: 'Electric', number: '' }])}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 shadow-sm transition-all cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -500,53 +516,64 @@ export default function AddUnit() {
               </button>
             </div>
 
-            {meters.map((m) => (
-              <div key={m.id} className="grid grid-cols-12 gap-3 items-center">
-                <div className="col-span-4">
-                  <div className="relative">
-                    <select
-                      value={m.type}
-                      onChange={(e) => setMeters((prev) => prev.map((x) => (x.id === m.id ? { ...x, type: e.target.value } : x)))}
-                      className="w-full appearance-none rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 pr-9 text-sm text-gray-800 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20 cursor-pointer"
-                    >
-                      {['Electric', 'Gas', 'Water', 'Submeter'].map((opt) => (
-                        <option key={opt} value={opt}>{opt}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            {meters.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-gray-200 p-4 text-center text-xs text-gray-400">
+                No utility meters configured. Click "+ Add Meter" to link an Electric, Gas, or Water meter.
+              </div>
+            ) : (
+              meters.map((m) => (
+                <div key={m.id} className="grid grid-cols-12 gap-3 items-center">
+                  <div className="col-span-4">
+                    <div className="relative">
+                      <select
+                        value={m.type}
+                        onChange={(e) => setMeters((prev) => prev.map((x) => (x.id === m.id ? { ...x, type: e.target.value } : x)))}
+                        className="w-full appearance-none rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 pr-9 text-sm text-gray-800 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20 cursor-pointer"
+                      >
+                        {['Electric', 'Gas', 'Water', 'Submeter'].map((opt) => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    </div>
                   </div>
-                </div>
-                <div className="col-span-7">
-                  <input
-                    type="text"
-                    placeholder="e.g., CONED-88412"
-                    value={m.number}
-                    onChange={(e) => setMeters((prev) => prev.map((x) => (x.id === m.id ? { ...x, number: e.target.value } : x)))}
-                    className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
-                  />
-                </div>
-                <div className="col-span-1 text-right">
-                  {meters.length > 1 && (
+                  <div className="col-span-7">
+                    <input
+                      type="text"
+                      placeholder="e.g., CONED-88412"
+                      value={m.number}
+                      onChange={(e) => setMeters((prev) => prev.map((x) => (x.id === m.id ? { ...x, number: e.target.value } : x)))}
+                      className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/20"
+                    />
+                  </div>
+                  <div className="col-span-1 text-right">
                     <button
                       type="button"
                       onClick={() => setMeters((prev) => prev.filter((x) => x.id !== m.id))}
                       className="text-red-500 hover:text-red-700 p-1.5 hover:bg-red-50 rounded-lg cursor-pointer transition-colors"
+                      title="Remove meter"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
-                  )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </Card>
 
         {/* Submit Actions */}
         <div className="flex items-center gap-3 pt-2">
-          <Button type="submit" icon={Save} size="lg" className="bg-indigo-600 hover:bg-indigo-700">
-            Create Unit
+          <Button
+            type="submit"
+            icon={Save}
+            size="lg"
+            disabled={isSubmitting}
+            className="bg-indigo-600 hover:bg-indigo-700"
+          >
+            {isSubmitting ? 'Creating Unit...' : 'Create Unit'}
           </Button>
-          <Button variant="secondary" onClick={() => navigate('/units')} size="lg">
+          <Button variant="secondary" onClick={() => navigate('/units')} size="lg" disabled={isSubmitting}>
             Cancel
           </Button>
         </div>
