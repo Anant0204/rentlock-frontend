@@ -104,6 +104,92 @@ export default function ManagerMessages() {
         });
       }
     }).catch(() => {});
+
+    // Sync direct messages from Admin
+    const syncAdminDirectMessages = () => {
+      const adminMsgs = [];
+      const seen = new Set();
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith('pm_chat_manager')) {
+            const parsed = JSON.parse(localStorage.getItem(k) || '[]');
+            if (Array.isArray(parsed)) {
+              parsed.forEach((m) => {
+                const txt = (m.text || '').trim();
+                if (txt && !seen.has(txt)) {
+                  seen.add(txt);
+                  adminMsgs.push({
+                    id: m.id || `admin-msg-${adminMsgs.length}`,
+                    senderType: m.isStaff ? 'admin' : 'manager',
+                    senderLabel: m.sender || 'Robert King (Admin)',
+                    text: txt,
+                    isInternal: false,
+                    channel: 'Portal',
+                    time: m.time || 'Today',
+                    attachments: m.attachments || [],
+                  });
+                }
+              });
+            }
+          }
+        }
+        const notifs = JSON.parse(localStorage.getItem('pm_notifications') || '[]');
+        if (Array.isArray(notifs)) {
+          notifs.forEach((n) => {
+            if (n.targetRole === 'manager' && n.desc) {
+              const txt = n.desc.trim();
+              if (txt && !seen.has(txt)) {
+                seen.add(txt);
+                adminMsgs.push({
+                  id: n.id || `notif-msg-${adminMsgs.length}`,
+                  senderType: 'admin',
+                  senderLabel: n.sender || 'Robert King (Admin)',
+                  text: txt,
+                  isInternal: false,
+                  channel: 'Portal',
+                  time: n.time || 'Today',
+                  attachments: [],
+                });
+              }
+            }
+          });
+        }
+      } catch {}
+
+      if (adminMsgs.length > 0) {
+        const last = adminMsgs[adminMsgs.length - 1];
+        const adminThread = {
+          id: 'admin-manager-thread',
+          contactName: 'Robert King (Admin)',
+          initials: 'RK',
+          propertyId: '',
+          propertyName: 'Executive Administration',
+          unitNumber: 'Head Office',
+          propertyUnitLabel: 'Robert King · Admin Direct',
+          fullPropertyUnit: 'Administration · Executive Office',
+          channel: 'Portal',
+          channelBadge: 'ADMIN',
+          preview: last.text.slice(0, 45),
+          timeAgo: last.time || 'Today',
+          unreadCount: 0,
+          workOrderId: null,
+          messages: adminMsgs,
+        };
+        setState((prev) => {
+          const filtered = prev.threads.filter((t) => t.id !== 'admin-manager-thread');
+          return { ...prev, threads: [adminThread, ...filtered] };
+        });
+      }
+    };
+
+    syncAdminDirectMessages();
+    window.addEventListener('pm:notification_updated', syncAdminDirectMessages);
+    window.addEventListener('storage', syncAdminDirectMessages);
+    return () => {
+      window.removeEventListener('pm:notification_updated', syncAdminDirectMessages);
+      window.removeEventListener('storage', syncAdminDirectMessages);
+    };
   }, []);
 
   // New message modal

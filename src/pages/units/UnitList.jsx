@@ -25,7 +25,8 @@ export default function UnitList() {
   const [isManageTypesOpen, setIsManageTypesOpen] = useState(false);
   const [unitTypesList, setUnitTypesList] = useState(() => getUnitTypes());
   const [newTypeName, setNewTypeName] = useState('');
-  const properties = getProperties().filter((p) => !p.archived);
+
+  const [properties, setProperties] = useState(() => getProperties().filter((p) => !p.archived));
 
   const handleAddNewType = async () => {
     if (!newTypeName.trim()) return;
@@ -49,7 +50,14 @@ export default function UnitList() {
         setAllUnits(items);
         localStorage.setItem('custom_units', JSON.stringify(items));
       }
-    }).catch(() => {});
+    }).catch(() => { });
+
+    apiClient.get('/properties?limit=100').then((res) => {
+      const items = res?.items || res;
+      if (Array.isArray(items) && items.length > 0) {
+        setProperties(items);
+      }
+    }).catch(() => { });
   };
 
   useEffect(() => {
@@ -86,8 +94,12 @@ export default function UnitList() {
   const filteredData = useMemo(() => {
     const q = (searchQuery || '').toLowerCase();
     return allUnits.filter((unit) => {
-      const matchesStatus = statusFilter === 'All' || unit.status === statusFilter;
-      const matchesProp = propertyFilter === 'All' || unit.propertyName === propertyFilter;
+      const matchesArchive = activeTab === 'Archived' ? unit.archived : !unit.archived;
+      const matchesTab = activeTab === 'All' || activeTab === 'Archived' || unit.status === activeTab;
+      const matchesProp =
+        propertyFilter === 'All' ||
+        (unit.propertyName && unit.propertyName.toLowerCase() === propertyFilter.toLowerCase()) ||
+        String(unit.propertyId) === String(propertyFilter);
       const matchesSearch =
         !q ||
         (unit.unitNumber || '').toLowerCase().includes(q) ||
