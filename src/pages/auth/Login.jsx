@@ -11,6 +11,7 @@ import { useAuth } from '../../context/AuthContext';
 import apiClient from '../../services/apiClient';
 import { getOwners, getManagers } from '../../data/mockExtra';
 import { getTenants } from '../../data/mockTenants';
+import toast from 'react-hot-toast';
 
 /* ─────────────────────── ROLE CONFIG (4 ACCOUNTS) ─────────────────────── */
 const ROLES = [
@@ -328,9 +329,38 @@ export default function Login() {
     if (!form.email) errs.email = 'Email is required';
     if (!form.password) errs.password = 'Password is required';
 
+    const lowerEmail = form.email.trim().toLowerCase();
+
+    // 1. Strict check if account is deactivated / archived
+    const isDeactivated = (u) => {
+      if (!u) return false;
+      return (
+        u.archived === true ||
+        u.status === 'Archived' ||
+        u.status === 'Inactive' ||
+        u.status === 'Deactivated' ||
+        u.isActive === false
+      );
+    };
+
+    const allManagers = getManagers();
+    const allOwners = getOwners();
+    const allTenants = getTenants();
+
+    const deactUser =
+      allManagers.find((m) => (m.email || '').toLowerCase() === lowerEmail && isDeactivated(m)) ||
+      allOwners.find((o) => (o.email || '').toLowerCase() === lowerEmail && isDeactivated(o)) ||
+      allTenants.find((t) => (t.email || '').toLowerCase() === lowerEmail && isDeactivated(t));
+
+    if (deactUser) {
+      const deactMsg = `Account Deactivated: ${deactUser.name || lowerEmail} is deactivated / archived. Login is disabled.`;
+      toast.error(deactMsg, { duration: 5000 });
+      setErrors({ email: 'This account has been deactivated. Please contact the administrator.' });
+      return;
+    }
+
     // Auto-resolve role based on email if needed
     let role = form.role;
-    const lowerEmail = form.email.trim().toLowerCase();
     if (customManagers.some((m) => (m.email || '').toLowerCase() === lowerEmail)) {
       role = 'manager';
     } else if (customOwners.some((o) => (o.email || '').toLowerCase() === lowerEmail)) {
@@ -343,9 +373,12 @@ export default function Login() {
     if (Object.keys(errs).length) { setErrors(errs); return; }
     try {
       await login(form.email, form.password, role);
+      toast.success('Welcome back!');
       navigate('/dashboard');
     } catch (err) {
-      setErrors({ password: err?.message || 'Invalid credentials' });
+      const errMsg = err?.message || 'Invalid credentials';
+      toast.error(errMsg, { duration: 5000 });
+      setErrors({ password: errMsg });
     }
   };
 

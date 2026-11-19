@@ -134,6 +134,32 @@ export const authService = {
     const cleanEmail = (email || '').trim().toLowerCase();
     const cleanRole = role === 'super_admin' ? 'admin' : (role || 'admin');
 
+    // Helper to verify if an account is archived or deactivated
+    const isDeactivated = (u) => {
+      if (!u) return false;
+      return (
+        u.archived === true ||
+        u.status === 'Archived' ||
+        u.status === 'Inactive' ||
+        u.status === 'Deactivated' ||
+        u.isActive === false
+      );
+    };
+
+    // 0. Pre-check across local rosters
+    const allManagers = getManagers();
+    const allOwners = getOwners();
+    const allTenants = getTenants();
+
+    const deactAccount =
+      allManagers.find((m) => (m.email || '').toLowerCase() === cleanEmail && isDeactivated(m)) ||
+      allOwners.find((o) => (o.email || '').toLowerCase() === cleanEmail && isDeactivated(o)) ||
+      allTenants.find((t) => (t.email || '').toLowerCase() === cleanEmail && isDeactivated(t));
+
+    if (deactAccount) {
+      throw new Error(`Account Deactivated: ${cleanEmail} is currently deactivated. Login is disabled.`);
+    }
+
     // 1. Attempt real API authentication with backend server
     try {
       const authRes = await apiClient.post('/auth/login', {
@@ -143,6 +169,10 @@ export const authService = {
       });
 
       if (authRes && authRes.user && authRes.tokens) {
+        if (isDeactivated(authRes.user)) {
+          throw new Error(`Account Deactivated: ${cleanEmail} is currently deactivated. Login is disabled.`);
+        }
+
         localStorage.setItem('pm_token', authRes.tokens.accessToken);
         localStorage.setItem('pm_refresh_token', authRes.tokens.refreshToken);
         if (authRes.permissions) {
@@ -156,6 +186,9 @@ export const authService = {
         };
       }
     } catch (apiErr) {
+      if (apiErr.message && apiErr.message.includes('Account Deactivated')) {
+        throw apiErr;
+      }
       console.warn('Real backend /auth/login connection attempt:', apiErr.message);
 
       // Check if this user exists in custom managers/owners/tenants
@@ -169,6 +202,9 @@ export const authService = {
         customTenants.find((t) => (t.email || '').toLowerCase() === cleanEmail);
 
       if (matchedCustomUser) {
+        if (isDeactivated(matchedCustomUser)) {
+          throw new Error(`Account Deactivated: ${cleanEmail} is currently deactivated. Login is disabled.`);
+        }
         const expectedPassword = String(matchedCustomUser.password || '123456');
         const enteredPassword = String(password || '');
 

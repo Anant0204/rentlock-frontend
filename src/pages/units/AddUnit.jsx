@@ -16,10 +16,10 @@ const generateUnitId = () => {
 
 export default function AddUnit() {
   const navigate = useNavigate();
-  const rawProps = getProperties().filter((p) => !p.archived);
-  const properties = rawProps.length > 0
-    ? rawProps
-    : [{ id: 1, name: 'Sunrise Residency' }];
+  const [properties, setProperties] = useState(() => {
+    const rawProps = getProperties().filter((p) => !p.archived);
+    return rawProps.length > 0 ? rawProps : [{ id: 1, name: 'Sunrise Residency' }];
+  });
 
   const [form, setForm] = useState({
     propertyId: properties[0]?.id || 1,
@@ -47,6 +47,7 @@ export default function AddUnit() {
     apiClient.get('/properties?limit=100').then((res) => {
       const items = res?.items || res;
       if (Array.isArray(items) && items.length > 0) {
+        setProperties(items);
         if (!form.propertyId) {
           setForm((prev) => ({ ...prev, propertyId: items[0].id }));
         }

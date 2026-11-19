@@ -21,7 +21,7 @@ export default function UnitList() {
   const [unitToDelete, setUnitToDelete] = useState(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const properties = getProperties().filter((p) => !p.archived);
+  const [properties, setProperties] = useState(() => getProperties().filter((p) => !p.archived));
 
   const fetchUnits = () => {
     apiClient.get('/units?limit=100').then((res) => {
@@ -29,6 +29,13 @@ export default function UnitList() {
       if (Array.isArray(items)) {
         setAllUnits(items);
         localStorage.setItem('custom_units', JSON.stringify(items));
+      }
+    }).catch(() => {});
+
+    apiClient.get('/properties?limit=100').then((res) => {
+      const items = res?.items || res;
+      if (Array.isArray(items) && items.length > 0) {
+        setProperties(items);
       }
     }).catch(() => {});
   };
@@ -64,7 +71,10 @@ export default function UnitList() {
     return allUnits.filter((unit) => {
       const matchesArchive = activeTab === 'Archived' ? unit.archived : !unit.archived;
       const matchesTab = activeTab === 'All' || activeTab === 'Archived' || unit.status === activeTab;
-      const matchesProp = propertyFilter === 'All' || unit.propertyName === propertyFilter;
+      const matchesProp =
+        propertyFilter === 'All' ||
+        (unit.propertyName && unit.propertyName.toLowerCase() === propertyFilter.toLowerCase()) ||
+        String(unit.propertyId) === String(propertyFilter);
       const matchesSearch =
         !q ||
         (unit.unitNumber || '').toLowerCase().includes(q) ||
