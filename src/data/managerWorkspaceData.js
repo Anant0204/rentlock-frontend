@@ -175,9 +175,9 @@ export function getManagerWorkspaceState() {
           let cwPropName = (cw.propertyName || '').trim();
           let cwPropId = String(cw.propertyId || '');
 
-          // If this ticket had legacy placeholder "Sunrise Residency" or "1", remap to active property (HAPPY)
+          // If this ticket had legacy placeholder "Sunrise Residency", "Main Property", or "1", remap to active property (HELLO PROPERTY)
           if (
-            (!cwPropName || cwPropName.toLowerCase() === 'sunrise residency' || cwPropId === '1') &&
+            (!cwPropName || cwPropName.toLowerCase() === 'sunrise residency' || cwPropName.toLowerCase() === 'main property' || cwPropId === '1') &&
             mappedProps.length > 0
           ) {
             cwPropName = defaultMgrPropName;
@@ -246,8 +246,8 @@ export function getManagerWorkspaceState() {
               category: two.category || 'General',
               propertyId: woPropId,
               propertyName: woPropName,
-              unitNumber: two.unit || tenantState?.household?.unitCode || '2A',
-              residentName: tenantState?.household?.tenantName || 'demo',
+              unitNumber: two.unit || tenantState?.household?.unitCode || 'T2',
+              residentName: tenantState?.household?.tenantName || 'Jonny',
               residentPhone: '+1 (347) 555-0118',
               priority: two.urgency === 'Urgent' ? 'Urgent' : 'Normal',
               status: two.status || 'Open',
@@ -266,7 +266,70 @@ export function getManagerWorkspaceState() {
     }
   } catch {}
 
-  base.workOrders = existingWOs;
+  // 3. Sync from rentlock_live_work_orders (Live tickets synced from backend)
+  try {
+    const rawLive = localStorage.getItem('rentlock_live_work_orders');
+    if (rawLive) {
+      const parsedLive = JSON.parse(rawLive);
+      if (Array.isArray(parsedLive)) {
+        parsedLive.forEach((lw) => {
+          const woPropName = lw.propertyName || defaultMgrPropName;
+          const woPropId = String(lw.propertyId || defaultMgrPropId);
+          const existingIdx = existingWOs.findIndex((w) => String(w.id) === String(lw.id));
+          if (existingIdx > -1) {
+            existingWOs[existingIdx].propertyName = woPropName;
+            existingWOs[existingIdx].propertyId = woPropId;
+            existingWOs[existingIdx].title = lw.title || existingWOs[existingIdx].title;
+            existingWOs[existingIdx].description = lw.description || existingWOs[existingIdx].description;
+            existingWOs[existingIdx].priority = lw.priority || existingWOs[existingIdx].priority;
+            existingWOs[existingIdx].status = lw.status || existingWOs[existingIdx].status;
+          } else {
+            existingWOs.push({
+              id: String(lw.id),
+              title: lw.title || 'Repair Request',
+              description: lw.description || 'Maintenance issue logged in resident portal',
+              category: lw.category || 'General',
+              propertyId: woPropId,
+              propertyName: woPropName,
+              unitNumber: lw.unitNumber || lw.unit || 'T2',
+              unit: lw.unitNumber || lw.unit || 'T2',
+              residentName: lw.residentName || lw.tenantName || 'Jonny',
+              residentPhone: lw.residentPhone || '+1 (347) 555-0118',
+              priority: lw.priority || 'Normal',
+              status: lw.status || 'Open',
+              estimatedCost: Number(lw.estimatedCost || lw.costEstimate || 0),
+              createdAt: lw.createdAt || new Date().toISOString().slice(0, 10),
+              scheduledToday: true,
+              timeline: lw.timeline || [
+                { label: 'Logged via RentLock resident portal', time: 'Recently' },
+                { label: 'Assigned to maintenance queue', time: 'Recently' },
+              ],
+            });
+            knownWOIds.add(String(lw.id));
+          }
+        });
+      }
+    }
+  } catch {}
+
+  // Deduplicate work orders across existingWOs by normalized description/title
+  const seenWODescs = new Set();
+  const dedupedWOs = [];
+  for (const wo of existingWOs) {
+    const rawKey = ((wo.description || wo.title || '').trim()).toLowerCase();
+    const normKey = rawKey.length > 5 ? rawKey : `${wo.id}-${rawKey}`;
+    if (seenWODescs.has(normKey)) {
+      continue;
+    }
+    seenWODescs.add(normKey);
+    // Ensure propertyName is correctly set to manager's property
+    if (mappedProps.length > 0 && (!wo.propertyName || wo.propertyName === 'Main Property')) {
+      wo.propertyName = mappedProps[0].name;
+      wo.propertyId = mappedProps[0].id;
+    }
+    dedupedWOs.push(wo);
+  }
+  base.workOrders = dedupedWOs;
 
   // Strict isolation for all associated manager workspace data
   if (mappedProps.length === 0) {
@@ -277,32 +340,55 @@ export function getManagerWorkspaceState() {
     base.recentActivity = [];
     base.threads = [];
   } else {
-    const allowedIds = new Set(mappedProps.map((p) => String(p.id)));
-    const allowedNames = new Set(mappedProps.map((p) => p.name?.trim().toLowerCase()));
+    const allowedIds = new Set();
+    mappedProps.forEach((p) => {
+      if (p.id) {
+        allowedIds.add(String(p.id).toLowerCase());
+        allowedIds.add(String(p.id).toLowerCase().replace(/^prop-/, ''));
+      }
+      if (p.originalId) allowedIds.add(String(p.originalId).toLowerCase());
+      if (p.numericId) allowedIds.add(String(p.numericId).toLowerCase());
+    });
+    const allowedNames = new Set(
+      mappedProps.map((p) => (p.name || '').trim().toLowerCase()).filter(Boolean)
+    );
+    const singleAssignedName = mappedProps.length === 1 ? (mappedProps[0].name || '').trim().toLowerCase() : null;
 
     if (Array.isArray(base.tenants)) {
-      base.tenants = base.tenants.filter(
-        (t) => allowedIds.has(String(t.propertyId)) || allowedNames.has((t.propertyName || '').trim().toLowerCase())
-      );
+      base.tenants = base.tenants.filter((t) => {
+        const tPropId = String(t.propertyId || '').toLowerCase();
+        const tPropName = (t.propertyName || '').trim().toLowerCase();
+        return (
+          allowedIds.has(tPropId) ||
+          allowedNames.has(tPropName) ||
+          (singleAssignedName && (!tPropName || tPropName === 'main property' || tPropName === singleAssignedName))
+        );
+      });
     }
     if (Array.isArray(base.workOrders)) {
-      base.workOrders = base.workOrders.filter(
-        (w) => allowedIds.has(String(w.propertyId)) || allowedNames.has((w.propertyName || '').trim().toLowerCase())
-      );
+      base.workOrders = base.workOrders.filter((w) => {
+        const wPropId = String(w.propertyId || '').toLowerCase();
+        const wPropName = (w.propertyName || '').trim().toLowerCase();
+        return (
+          allowedIds.has(wPropId) ||
+          allowedNames.has(wPropName) ||
+          (singleAssignedName && (!wPropName || wPropName === 'main property' || wPropName === singleAssignedName))
+        );
+      });
     }
     if (Array.isArray(base.schedule)) {
       base.schedule = base.schedule.filter(
-        (s) => allowedIds.has(String(s.propertyId)) || allowedNames.has((s.property || '').trim().toLowerCase())
+        (s) => allowedIds.has(String(s.propertyId).toLowerCase()) || allowedNames.has((s.property || '').trim().toLowerCase())
       );
     }
     if (Array.isArray(base.recentActivity)) {
       base.recentActivity = base.recentActivity.filter(
-        (a) => !a.propertyId || allowedIds.has(String(a.propertyId))
+        (a) => !a.propertyId || allowedIds.has(String(a.propertyId).toLowerCase())
       );
     }
     if (Array.isArray(base.threads)) {
       base.threads = base.threads.filter(
-        (t) => !t.propertyId || allowedIds.has(String(t.propertyId))
+        (t) => !t.propertyId || allowedIds.has(String(t.propertyId).toLowerCase())
       );
     }
   }
@@ -333,10 +419,36 @@ export function getManagerUnreadCount(state, propertyFilter = '') {
     .reduce((sum, t) => sum + (Number(t.unreadCount) || 0), 0);
 }
 
+export function matchesPropertyFilter(wo, propertyFilter, properties = []) {
+  if (!propertyFilter) return true;
+  const pFilter = String(propertyFilter).toLowerCase().trim();
+  const woPropId = String(wo?.propertyId || '').toLowerCase().trim();
+  const woPropName = String(wo?.propertyName || '').toLowerCase().trim();
+
+  if (woPropId === pFilter) return true;
+  if (woPropName === pFilter) return true;
+
+  if (Array.isArray(properties) && properties.length > 0) {
+    const matchedProp = properties.find(
+      (p) =>
+        String(p.id).toLowerCase() === pFilter ||
+        String(p.originalId || '').toLowerCase() === pFilter ||
+        String(p.name || '').toLowerCase() === pFilter
+    );
+    if (matchedProp) {
+      const mName = String(matchedProp.name || '').toLowerCase().trim();
+      const mId = String(matchedProp.id || '').toLowerCase().trim();
+      const mOrigId = String(matchedProp.originalId || '').toLowerCase().trim();
+      if (woPropName === mName || woPropId === mId || woPropId === mOrigId) return true;
+    }
+  }
+  return false;
+}
+
 export function getManagerOpenWorkOrders(state, propertyFilter = '') {
   if (!Array.isArray(state?.workOrders)) return [];
   return state.workOrders.filter(
-    (wo) => wo.status !== 'Closed' && (!propertyFilter || wo.propertyId === propertyFilter)
+    (wo) => wo.status !== 'Closed' && matchesPropertyFilter(wo, propertyFilter, state?.properties)
   );
 }
 

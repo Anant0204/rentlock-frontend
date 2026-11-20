@@ -92,6 +92,56 @@ export function getTenantPortalState() {
     // ignore
   }
 
+  // Deduplicate work orders in base state so redundant duplicate clicks are cleaned up
+  if (Array.isArray(base.workOrders)) {
+    const seenDesc = new Set();
+    base.workOrders = base.workOrders.filter((w) => {
+      const descKey = (w.description || w.title || '').trim().toLowerCase();
+      if (!descKey) return true;
+      if (seenDesc.has(descKey)) return false;
+      seenDesc.add(descKey);
+      return true;
+    });
+  }
+
+  // Also clean up duplicates in custom_work_orders_us
+  try {
+    const rawWOs = localStorage.getItem('custom_work_orders_us');
+    if (rawWOs) {
+      const customWOs = JSON.parse(rawWOs);
+      if (Array.isArray(customWOs)) {
+        const seen = new Set();
+        const deduplicated = customWOs.filter((w) => {
+          const descKey = (w.description || w.title || '').trim().toLowerCase();
+          if (!descKey) return true;
+          if (seen.has(descKey)) return false;
+          seen.add(descKey);
+          return true;
+        });
+        localStorage.setItem('custom_work_orders_us', JSON.stringify(deduplicated));
+      }
+    }
+  } catch {}
+
+  // Also clean up duplicates in rentlock_manager_workspace_v1
+  try {
+    const rawMgr = localStorage.getItem('rentlock_manager_workspace_v1');
+    if (rawMgr) {
+      const mgrState = JSON.parse(rawMgr);
+      if (mgrState && Array.isArray(mgrState.workOrders)) {
+        const seen = new Set();
+        mgrState.workOrders = mgrState.workOrders.filter((w) => {
+          const descKey = (w.description || w.report || w.title || '').trim().toLowerCase();
+          if (!descKey) return true;
+          if (seen.has(descKey)) return false;
+          seen.add(descKey);
+          return true;
+        });
+        localStorage.setItem('rentlock_manager_workspace_v1', JSON.stringify(mgrState));
+      }
+    }
+  } catch {}
+
   if (activeUser?.role === 'tenant') {
     const tenantName = activeUser.name;
     let customTenants = [];
@@ -316,7 +366,7 @@ export function confirmTenantPayment({ amount, methodId, idempotencyKey }) {
   return { state: nextState, receipt, duplicatePrevented: false };
 }
 
-export function createTenantWorkOrder({
+export async function createTenantWorkOrder({
   unit,
   category,
   description,
@@ -359,6 +409,17 @@ export function createTenantWorkOrder({
   const unitNum = unit || matchTenant?.unitNumber || state.household?.unitCode || 'T2';
   const tenantName = activeUser?.name || matchTenant?.name || 'Jonny';
 
+  // Duplicate prevention guard: if submitted with exact same description within 60 seconds
+  const cleanDesc = description.trim().toLowerCase();
+  const existingDuplicate = (state.workOrders || []).find((w) => {
+    const isSame = (w.description || w.title || '').trim().toLowerCase() === cleanDesc;
+    const isRecent = w.createdAt && Date.now() - new Date(w.createdAt).getTime() < 60000;
+    return isSame && isRecent;
+  });
+  if (existingDuplicate) {
+    return { state, workOrder: existingDuplicate, duplicatePrevented: true };
+  }
+
   const nextNumber = 302 + state.workOrders.length;
   const id = `WO-${nextNumber}`;
   const now = new Date();
@@ -370,8 +431,9 @@ export function createTenantWorkOrder({
   const safeDescription = description.trim().length >= 10 ? description.trim() : `${description.trim()} (reported by resident)`;
 
   // Real API call to backend
-  apiClient
-    .post('/portal/tenant/work-order', {
+  let assignedTicketId = id;
+  try {
+    const res = await apiClient.post('/portal/tenant/work-order', {
       category: category || 'General',
       issueLocation: safeLocation,
       accessTime: bestTimeToEnter || 'Anytime during business hours',
@@ -379,22 +441,25 @@ export function createTenantWorkOrder({
       urgency: urgency || 'Normal',
       priority: urgency === 'Urgent' ? 'Urgent' : 'Normal',
       photoUrls: (photos || []).map((p) => p?.url || p),
-    })
-    .catch(() => {
-      // Direct fallback to maintenance API
-      apiClient.post('/maintenance', {
-        title: shortTitle,
-        description: safeDescription,
-        category: category || 'General',
-        priority: urgency === 'Urgent' ? 'Emergency' : 'Medium',
-        propertyId: Number(propId) || 1,
-        unitId: Number(matchTenant?.unitId) || undefined,
-        tenantId: Number(matchTenant?.id) || 6,
-      }).catch(() => {});
     });
+    if (res?.ticketNumber) {
+      assignedTicketId = res.ticketNumber;
+    }
+  } catch {
+    // Direct fallback to maintenance API
+    apiClient.post('/maintenance', {
+      title: shortTitle,
+      description: safeDescription,
+      category: category || 'General',
+      priority: urgency === 'Urgent' ? 'Emergency' : 'Medium',
+      propertyId: Number(propId) || 1,
+      unitId: Number(matchTenant?.unitId) || undefined,
+      tenantId: Number(matchTenant?.id) || 6,
+    }).catch(() => {});
+  }
 
   const workOrder = {
-    id,
+    id: assignedTicketId,
     unit: unitNum,
     category,
     title: shortTitle,

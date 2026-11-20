@@ -1,20 +1,22 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import apiClient from '../../services/apiClient';
 import {
   Wrench, AlertCircle, ShieldAlert, CalendarClock, Plus,
-  MessageSquare, CheckCircle2, Upload, FileText, ArrowLeft
+  MessageSquare, CheckCircle2, Upload, FileText, ArrowLeft, Eye
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Card from '../../components/ui/Card';
 import StatCard from '../../components/shared/StatCard';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
+import Modal from '../../components/ui/Modal';
 import ManagerScopeBar from '../../components/manager/ManagerScopeBar';
 import CreateWorkOrderModal from '../../components/manager/CreateWorkOrderModal';
 import {
   getManagerWorkspaceState,
   getManagerOpenWorkOrders,
+  matchesPropertyFilter,
   requestWorkOrderApproval,
   completeManagerWorkOrder,
   formatActionTimestamp,
@@ -37,71 +39,124 @@ export default function ManagerWorkOrders() {
   const [propertyFilter, setPropertyFilter] = useState('');
   const [selectedId, setSelectedId] = useState(woParam || '');
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [detailWO, setDetailWO] = useState(null);
 
-  useEffect(() => {
-    const refreshLocal = () => {
-      const local = getManagerWorkspaceState();
-      setState(local);
-    };
-
-    refreshLocal();
-    window.addEventListener('focus', refreshLocal);
-    window.addEventListener('storage', refreshLocal);
-    window.addEventListener('rentlock_work_orders_changed', refreshLocal);
-
-    apiClient.get('/maintenance?limit=100').then((res) => {
+  const fetchLiveWorkOrders = useCallback(async () => {
+    try {
+      const res = await apiClient.get('/maintenance?limit=100');
       const liveTickets = res?.items || res;
       if (Array.isArray(liveTickets) && liveTickets.length > 0) {
         const local = getManagerWorkspaceState();
-        const allowedPropIds = new Set(local.properties.map((p) => String(p.id)));
-        const allowedPropNames = new Set(local.properties.map((p) => (p.name || '').trim().toLowerCase()));
-
-        const scopedTickets = liveTickets.filter(
-          (t) =>
-            allowedPropIds.has(String(t.propertyId)) ||
-            allowedPropNames.has((t.propertyName || '').trim().toLowerCase())
+        const allowedPropIds = new Set();
+        local.properties.forEach((p) => {
+          if (p.id) {
+            allowedPropIds.add(String(p.id).toLowerCase());
+            allowedPropIds.add(String(p.id).toLowerCase().replace(/^prop-/, ''));
+          }
+          if (p.originalId) allowedPropIds.add(String(p.originalId).toLowerCase());
+          if (p.numericId) allowedPropIds.add(String(p.numericId).toLowerCase());
+        });
+        const allowedPropNames = new Set(
+          local.properties.map((p) => (p.name || '').trim().toLowerCase()).filter(Boolean)
         );
+        const singlePropName = local.properties.length === 1 ? (local.properties[0].name || '').trim().toLowerCase() : null;
+
+        const scopedTickets = liveTickets.filter((t) => {
+          const tPropId = String(t.propertyId || '').toLowerCase();
+          const tPropName = (t.propertyName || '').trim().toLowerCase();
+          return (
+            allowedPropIds.has(tPropId) ||
+            allowedPropNames.has(tPropName) ||
+            (singlePropName && (!tPropName || tPropName === 'main property' || tPropName === singlePropName))
+          );
+        });
 
         if (scopedTickets.length > 0) {
           const liveMapped = scopedTickets.map((t) => ({
             id: String(t.ticketNumber || t.id),
-            title: t.title || t.issue,
+            title: t.title || t.issue || 'Repair Request',
             description: t.description || 'Maintenance issue logged in resident portal',
-            category: t.category || 'Plumbing',
-            propertyId: String(t.propertyId || ''),
-            propertyName: t.propertyName || '',
-            unitNumber: t.unitNumber || '',
-            residentName: t.tenantName || 'Resident',
-            residentPhone: '+1 (347) 555-0118',
-            priority: t.priority === 'High' || t.priority === 'Emergency' ? 'Urgent' : 'Normal',
-            status: t.status === 'In_Progress' ? 'In progress' : t.status === 'Pending_Approval' ? 'Approval needed' : 'Open',
-            estimatedCost: Number(t.costEstimate || t.cost || 0),
-            createdAt: t.createdAt ? t.createdAt.slice(0, 10) : '2026-11-14',
+            category: t.category || 'General',
+            propertyId: String(t.propertyId || (local.properties[0]?.id || '')),
+            propertyName: t.propertyName && t.propertyName !== 'Main Property' ? t.propertyName : (local.properties[0]?.name || 'HELLO PROPERTY'),
+            unitNumber: t.unitNumber || t.unit || 'T2',
+            unit: t.unitNumber || t.unit || 'T2',
+            residentName: t.tenantName || t.tenant || 'Jonny',
+            tenantName: t.tenantName || t.tenant || 'Jonny',
+            residentPhone: t.tenantPhone || '+1 (347) 555-0118',
+            priority: t.priority === 'High' || t.priority === 'Emergency' || t.priority === 'Urgent' ? 'Urgent' : 'Normal',
+            status: t.status === 'In_Progress' || t.status === 'In Progress' ? 'In progress' : t.status === 'Pending_Approval' || t.status === 'Approval needed' ? 'Approval needed' : t.status === 'Closed' ? 'Closed' : 'Open',
+            estimatedCost: Number(t.costEstimate || t.cost || t.estimatedCost || 0),
+            createdAt: t.createdAt ? t.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10),
             scheduledToday: true,
             timeline: [
-              { label: 'Logged via RentLock resident portal', time: '11/14 · 10:15 AM' },
-              { label: 'Assigned to maintenance queue', time: '11/14 · 10:30 AM' },
+              { label: 'Logged via RentLock resident portal', time: 'Recently' },
+              { label: 'Assigned to maintenance queue', time: 'Recently' },
             ],
           }));
 
-          const liveIds = new Set(liveMapped.map((w) => w.id));
-          setState((prev) => ({
-            ...prev,
-            workOrders: [
-              ...liveMapped,
-              ...(prev.workOrders || []).filter((w) => !liveIds.has(w.id)),
-            ],
-          }));
+          // Persist in localStorage so getManagerWorkspaceState() permanently preserves it
+          try {
+            localStorage.setItem('rentlock_live_work_orders', JSON.stringify(liveMapped));
+          } catch {}
+
+          setState((prev) => {
+            const combined = [...liveMapped, ...(prev.workOrders || [])];
+            const seen = new Set();
+            const deduped = combined.filter((w) => {
+              const key = ((w.description || w.title || '').trim()).toLowerCase();
+              if (key.length > 5) {
+                if (seen.has(key)) return false;
+                seen.add(key);
+              }
+              return true;
+            });
+            return {
+              ...prev,
+              properties: local.properties.length > 0 ? local.properties : prev.properties,
+              workOrders: deduped,
+            };
+          });
+          return;
         }
       }
-    }).catch(() => {});
+    } catch {}
+
+    // Fallback: sync from local state without wiping existing work orders if local has none
+    const local = getManagerWorkspaceState();
+    setState((prev) => {
+      const hasLocalWOs = Array.isArray(local.workOrders) && local.workOrders.length > 0;
+      const hasPrevWOs = Array.isArray(prev.workOrders) && prev.workOrders.length > 0;
+      return {
+        ...local,
+        workOrders: hasLocalWOs ? local.workOrders : hasPrevWOs ? prev.workOrders : [],
+      };
+    });
+  }, []);
+
+  useEffect(() => {
+    fetchLiveWorkOrders();
+    window.addEventListener('focus', fetchLiveWorkOrders);
+    window.addEventListener('storage', fetchLiveWorkOrders);
+    window.addEventListener('rentlock_work_orders_changed', fetchLiveWorkOrders);
 
     return () => {
-      window.removeEventListener('focus', refreshLocal);
-      window.removeEventListener('storage', refreshLocal);
-      window.removeEventListener('rentlock_work_orders_changed', refreshLocal);
+      window.removeEventListener('focus', fetchLiveWorkOrders);
+      window.removeEventListener('storage', fetchLiveWorkOrders);
+      window.removeEventListener('rentlock_work_orders_changed', fetchLiveWorkOrders);
     };
-  }, []);
+  }, [fetchLiveWorkOrders]);
+
+  // When woParam is in URL, auto-select and open
+  useEffect(() => {
+    if (woParam && state.workOrders.length > 0) {
+      setSelectedId(woParam);
+      const target = state.workOrders.find((w) => w.id === woParam);
+      if (target && !detailWO) {
+        setDetailWO(target);
+      }
+    }
+  }, [woParam, state.workOrders]);
 
   // Closeout view state
   const [completingWOId, setCompletingWOId] = useState(
@@ -136,15 +191,15 @@ export default function ManagerWorkOrders() {
   }, [openOrders]);
 
   const filteredQueue = useMemo(() => {
-    return state.workOrders.filter((w) => {
+    return (state.workOrders || []).filter((w) => {
       if (statusFilter === 'Closed') return w.status === 'Closed';
       if (!statusFilter && w.status === 'Closed') return false;
       const matchesStatus = !statusFilter || w.status === statusFilter;
       const matchesPriority = !priorityFilter || w.priority === priorityFilter;
-      const matchesProp = !propertyFilter || w.propertyId === propertyFilter;
+      const matchesProp = matchesPropertyFilter(w, propertyFilter, state.properties);
       return matchesStatus && matchesPriority && matchesProp;
     });
-  }, [state.workOrders, statusFilter, priorityFilter, propertyFilter]);
+  }, [state.workOrders, statusFilter, priorityFilter, propertyFilter, state.properties]);
 
   const selectedWO = useMemo(() => {
     const targetId = woParam || selectedId;
@@ -162,6 +217,7 @@ export default function ManagerWorkOrders() {
   }, [completingWOId, completeParam, woParam, state.workOrders]);
 
   const openCloseoutMode = (wo) => {
+    setDetailWO(null);
     setCloseForm({
       workPerformed: wo.workPerformed || '',
       completedOn: wo.completedOn || formatActionTimestamp(),
@@ -521,12 +577,13 @@ export default function ManagerWorkOrders() {
                   <th className="py-3 px-4">UNIT / PROPERTY</th>
                   <th className="py-3 px-4">PRIORITY</th>
                   <th className="py-3 px-4">STATUS</th>
+                  <th className="py-3 px-4 text-right">ACTION</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-sm">
                 {filteredQueue.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="py-10 text-center text-xs text-gray-400">
+                    <td colSpan={5} className="py-10 text-center text-xs text-gray-400">
                       No work orders match the active filters.
                     </td>
                   </tr>
@@ -539,6 +596,7 @@ export default function ManagerWorkOrders() {
                         onClick={() => {
                           setSelectedId(wo.id);
                           setSearchParams({ wo: wo.id });
+                          setDetailWO(wo);
                         }}
                         className={`cursor-pointer transition-colors ${
                           isSelected ? 'bg-indigo-50/60' : 'hover:bg-gray-50/80'
@@ -579,6 +637,21 @@ export default function ManagerWorkOrders() {
                             {wo.status}
                           </Badge>
                         </td>
+                        <td className="py-3.5 px-4 text-right">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedId(wo.id);
+                              setSearchParams({ wo: wo.id });
+                              setDetailWO(wo);
+                            }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold transition-colors cursor-pointer"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            Open
+                          </button>
+                        </td>
                       </tr>
                     );
                   })
@@ -593,11 +666,21 @@ export default function ManagerWorkOrders() {
           {selectedWO ? (
             <>
               <div>
-                <h3 className="text-lg font-bold text-gray-900">
-                  Selected · {selectedWO.id}
-                </h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-bold text-gray-900">
+                    Selected · {selectedWO.id}
+                  </h3>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    icon={Eye}
+                    onClick={() => setDetailWO(selectedWO)}
+                  >
+                    Open
+                  </Button>
+                </div>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  {selectedWO.title} · {selectedWO.openedAt}
+                  {selectedWO.title} · {selectedWO.openedAt || selectedWO.createdAt}
                 </p>
                 <div className="flex flex-wrap gap-2 mt-3">
                   <Badge
@@ -655,7 +738,7 @@ export default function ManagerWorkOrders() {
               <div>
                 <p className="text-xs font-bold text-gray-700">Vendor estimate</p>
                 <p className="text-sm font-bold text-gray-900 mt-1">
-                  {selectedWO.vendorName}
+                  {selectedWO.vendorName || 'Not assigned yet'}
                   {selectedWO.estimateAmount > 0 ? ` · ${formatUsd(selectedWO.estimateAmount)}` : ''}
                 </p>
               </div>
@@ -736,6 +819,149 @@ export default function ManagerWorkOrders() {
           setSearchParams({ wo: newWO.id });
         }}
       />
+
+      {/* Work Order Detail Modal */}
+      {detailWO && (
+        <Modal
+          isOpen={Boolean(detailWO)}
+          onClose={() => setDetailWO(null)}
+          title={`Work Order · ${detailWO.id}`}
+          size="lg"
+          footer={
+            <div className="flex flex-wrap items-center justify-between w-full gap-3">
+              <div className="flex items-center gap-2">
+                <Badge
+                  variant={
+                    detailWO.priority === 'Urgent'
+                      ? 'danger'
+                      : detailWO.priority === 'High'
+                        ? 'warning'
+                        : 'default'
+                  }
+                  className="text-xs uppercase font-bold"
+                >
+                  {detailWO.priority} PRIORITY
+                </Badge>
+                <Badge
+                  variant={detailWO.status === 'Closed' ? 'success' : 'primary'}
+                  className="text-xs uppercase font-bold"
+                >
+                  {detailWO.status}
+                </Badge>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDetailWO(null)}
+                >
+                  Close
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={MessageSquare}
+                  onClick={() => {
+                    const id = detailWO.id;
+                    setDetailWO(null);
+                    navigate(`/manager/messages?wo=${id}`);
+                  }}
+                >
+                  Message resident
+                </Button>
+                {detailWO.status !== 'Closed' && (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => {
+                      const target = detailWO;
+                      openCloseoutMode(target);
+                    }}
+                  >
+                    Complete Ticket
+                  </Button>
+                )}
+              </div>
+            </div>
+          }
+        >
+          <div className="space-y-5">
+            {/* Property & Tenant Info Banner */}
+            <div className="p-4 rounded-xl bg-gray-50 border border-gray-100 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div>
+                <span className="text-gray-400 font-medium block">Property & Unit</span>
+                <span className="text-gray-900 font-bold text-sm block mt-0.5">
+                  {detailWO.propertyName || 'HELLO PROPERTY'} · Unit {detailWO.unit || detailWO.unitNumber || 'T2'}
+                </span>
+              </div>
+              <div>
+                <span className="text-gray-400 font-medium block">Resident Contact</span>
+                <span className="text-gray-900 font-bold text-sm block mt-0.5">
+                  {detailWO.residentName || detailWO.tenantName || 'Jonny'}
+                </span>
+                <span className="text-gray-500 block text-xs">
+                  {detailWO.residentPhone || '+1 (347) 555-0118'}
+                </span>
+              </div>
+            </div>
+
+            {/* Description / Problem */}
+            <div>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-1.5">
+                Resident Problem Report
+              </h4>
+              <div className="p-4 rounded-xl bg-white border border-gray-200 text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">
+                {detailWO.report || detailWO.description || detailWO.title}
+              </div>
+            </div>
+
+            {/* Photos if any */}
+            {Array.isArray(detailWO.photos || detailWO.attachments) &&
+              (detailWO.photos || detailWO.attachments).length > 0 && (
+                <div>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">
+                    Attached Photos ({(detailWO.photos || detailWO.attachments).length})
+                  </h4>
+                  <div className="flex flex-wrap gap-3">
+                    {(detailWO.photos || detailWO.attachments).map((p, idx) => (
+                      <a
+                        key={idx}
+                        href={p.url || p}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block rounded-xl overflow-hidden border border-gray-200 hover:ring-2 hover:ring-indigo-400 transition-all cursor-pointer"
+                      >
+                        <img
+                          src={p.url || p}
+                          alt={`Attachment ${idx + 1}`}
+                          className="w-24 h-24 object-cover"
+                        />
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+            {/* Timeline */}
+            <div>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">
+                Activity Timeline
+              </h4>
+              <div className="space-y-2 text-xs">
+                {(detailWO.timeline || [
+                  { label: 'Logged via RentLock resident portal', time: 'Recently' },
+                  { label: 'Assigned to manager queue', time: 'Pending' },
+                ]).map((tl, i) => (
+                  <div key={i} className="flex items-center justify-between p-2.5 rounded-lg bg-gray-50/70 border border-gray-100">
+                    <span className="font-medium text-gray-700">{tl.label}</span>
+                    <span className="text-gray-400 text-[11px]">{tl.time}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

@@ -66,8 +66,17 @@ export default function ComplaintBoard() {
       if (Array.isArray(items)) {
         const liveIds = new Set(items.map((i) => String(i.ticketNumber || i.id)));
         const combined = [...items, ...localWOs.filter((l) => !liveIds.has(String(l.ticketNumber || l.id)))];
-        setWorkOrders(combined);
-        localStorage.setItem('custom_work_orders_us', JSON.stringify(combined));
+        const seen = new Set();
+        const deduped = combined.filter((w) => {
+          const key = ((w.description || w.title || '').trim()).toLowerCase();
+          if (key.length > 5) {
+            if (seen.has(key)) return false;
+            seen.add(key);
+          }
+          return true;
+        });
+        setWorkOrders(deduped);
+        localStorage.setItem('custom_work_orders_us', JSON.stringify(deduped));
       } else if (localWOs.length > 0) {
         setWorkOrders(localWOs);
       }

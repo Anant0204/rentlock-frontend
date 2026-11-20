@@ -46,7 +46,6 @@ export default function TenantWorkOrder() {
         const liveTickets = Array.isArray(res) ? res : res?.items;
         if (Array.isArray(liveTickets) && liveTickets.length > 0) {
           setPortalState((prev) => {
-            const existingIds = new Set((prev.workOrders || []).map((w) => w.id));
             const mapped = liveTickets.map((t) => ({
               id: String(t.ticketNumber || t.id),
               title: t.title || t.issue || 'Repair Request',
@@ -58,10 +57,21 @@ export default function TenantWorkOrder() {
               notes: t.description || '',
               photos: [],
             }));
-            const newOnly = mapped.filter((w) => !existingIds.has(w.id));
+
+            // Deduplicate all tickets by description so repeated clicks don't show duplicates
+            const seen = new Set();
+            const combined = [...mapped, ...(prev.workOrders || [])];
+            const deduplicated = [];
+            for (const item of combined) {
+              const descKey = (item.description || item.title || '').trim().toLowerCase();
+              if (descKey && seen.has(descKey)) continue;
+              if (descKey) seen.add(descKey);
+              deduplicated.push(item);
+            }
+
             return {
               ...prev,
-              workOrders: [...newOnly, ...(prev.workOrders || [])],
+              workOrders: deduplicated,
             };
           });
         }
@@ -87,28 +97,44 @@ export default function TenantWorkOrder() {
     setPhotos((prev) => prev.filter((_, idx) => idx !== index));
   };
 
-  const handleSubmit = (e) => {
+  const submitLockRef = useRef(false);
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    if (submitLockRef.current || submitting) return;
+
     if (!description.trim()) {
       toast.error('Please describe the problem before submitting.');
       return;
     }
+
+    submitLockRef.current = true;
     setSubmitting(true);
+
     try {
-      const result = createTenantWorkOrder({
-        description,
+      const result = await createTenantWorkOrder({
+        description: description.trim(),
         urgency,
         photos,
       });
+
+      if (result.duplicatePrevented) {
+        toast('This repair request was already submitted.');
+      } else {
+        toast.success(`${result.workOrder.id} submitted. Manager and Admin notified.`);
+      }
+
       setPortalState(result.state);
       setDescription('');
       setPhotos([]);
       setUrgency('Normal');
-      toast.success(`${result.workOrder.id} submitted. Manager and Admin notified.`);
     } catch (err) {
       toast.error(err.message || 'Could not submit work order.');
     } finally {
-      setSubmitting(false);
+      setTimeout(() => {
+        submitLockRef.current = false;
+        setSubmitting(false);
+      }, 1500);
     }
   };
 
@@ -226,9 +252,10 @@ export default function TenantWorkOrder() {
               fullWidth
               size="lg"
               loading={submitting}
+              disabled={submitting || !description.trim()}
               icon={Wrench}
             >
-              Submit work order
+              {submitting ? 'Submitting work order...' : 'Submit work order'}
             </Button>
             <p className="text-xs text-gray-500 mt-2 text-center">
               Your property manager and administrator will see this request immediately.
