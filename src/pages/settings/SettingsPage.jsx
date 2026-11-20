@@ -1,4 +1,6 @@
 import { useState, useMemo } from 'react';
+import { useAuth } from '../../context/AuthContext';
+import ProfileSettings from './ProfileSettings';
 import {
   ShieldCheck,
   Save,
@@ -27,6 +29,7 @@ import {
   Check,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { authService } from '../../services/api';
 import PageHeader from '../../components/shared/PageHeader';
 import Card from '../../components/ui/Card';
 import Input from '../../components/ui/Input';
@@ -179,6 +182,12 @@ const RBAC_CATEGORIES = [
 ];
 
 export default function SettingsPage() {
+  const { user } = useAuth();
+
+  if (user?.role && !['admin', 'super_admin'].includes(user.role)) {
+    return <ProfileSettings />;
+  }
+
   const [activeTab, setActiveTab] = useState('company');
   const [portalState, setPortalState] = useState(() => getAdminPortalState());
   const [settings, setSettings] = useState(() => ({
@@ -189,6 +198,41 @@ export default function SettingsPage() {
     reportExportFormat: 'CSV + PDF Statement Bundle',
     ...getAdminPortalState().settings,
   }));
+
+  // Admin Change Password State
+  const [adminCurrentPassword, setAdminCurrentPassword] = useState('');
+  const [adminNewPassword, setAdminNewPassword] = useState('');
+  const [adminConfirmPassword, setAdminConfirmPassword] = useState('');
+  const [isUpdatingAdminPassword, setIsUpdatingAdminPassword] = useState(false);
+
+  const handleAdminPasswordUpdate = async (e) => {
+    e.preventDefault();
+    if (!adminCurrentPassword) {
+      toast.error('Please enter your current password');
+      return;
+    }
+    if (adminNewPassword.length < 6) {
+      toast.error('New password must be at least 6 characters long');
+      return;
+    }
+    if (adminNewPassword !== adminConfirmPassword) {
+      toast.error('New password and confirm password do not match');
+      return;
+    }
+
+    setIsUpdatingAdminPassword(true);
+    try {
+      await authService.changePassword(adminCurrentPassword, adminNewPassword);
+      setAdminCurrentPassword('');
+      setAdminNewPassword('');
+      setAdminConfirmPassword('');
+      toast.success('Admin password updated successfully in database!');
+    } catch (err) {
+      toast.error(err.message || 'Failed to update admin password');
+    } finally {
+      setIsUpdatingAdminPassword(false);
+    }
+  };
 
   // Available Accounts for Granular RBAC Assignment
   const managersList = useMemo(() => {
@@ -519,6 +563,7 @@ export default function SettingsPage() {
         {[
           { id: 'company', label: 'Company Defaults (U.S.)' },
           { id: 'rbac', label: 'Account Access & RBAC' },
+          { id: 'security', label: 'Change Password' },
           // { id: 'backups', label: 'Backups, Audit & Sessions' },
           // { id: 'health', label: 'Connection Health (5)' },
         ].map((t) => (
@@ -543,15 +588,68 @@ export default function SettingsPage() {
             <Input label="Federal EIN (Masked Display)" value={settings.ein} onChange={(e) => setSettings({ ...settings, ein: e.target.value })} />
             <Input label="Support Email" value={settings.supportEmail} onChange={(e) => setSettings({ ...settings, supportEmail: e.target.value })} />
             <Input label="Support U.S. Phone" value={settings.supportPhone} onChange={(e) => setSettings({ ...settings, supportPhone: e.target.value })} />
-            {/*
-            <Select label="Default Currency" value={settings.currency} options={['USD ($)']} onChange={(e) => setSettings({ ...settings, currency: e.target.value })} />
-            <Select label="Default Date Format" value={settings.dateFormat} options={['MM/DD/YYYY']} onChange={(e) => setSettings({ ...settings, dateFormat: e.target.value })} />
-            <Select label="Primary Timezone" value={settings.timezone} options={['America/New_York (ET)', 'America/Chicago (CT)', 'America/Los_Angeles (PT)']} onChange={(e) => setSettings({ ...settings, timezone: e.target.value })} />
-            <Select label="Default Accounting Basis" value={settings.accountingBasis} options={['Accrual', 'Cash']} onChange={(e) => setSettings({ ...settings, accountingBasis: e.target.value })} />
-            */}
           </div>
           <Input label="Registered U.S. Office Address" value={settings.address} onChange={(e) => setSettings({ ...settings, address: e.target.value })} />
           <Button icon={Save} onClick={saveCompanySettings}>Save Company Defaults</Button>
+        </Card>
+      )}
+
+      {/* TAB 3: Change Password Dedicated Tab */}
+      {activeTab === 'security' && (
+        <Card className="p-6 max-w-4xl space-y-6">
+          <form onSubmit={handleAdminPasswordUpdate} className="space-y-5">
+            <div className="flex items-center gap-2 pb-3 border-b border-gray-100">
+              <KeyRound className="w-5 h-5 text-indigo-600" />
+              <div>
+                <h3 className="text-base font-bold text-gray-900">Change Admin Password</h3>
+                <p className="text-xs text-gray-500">Update the primary administrator account password ({user?.email || 'admin@rentlock.com'}).</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="md:col-span-2">
+                <Input
+                  label="Current Password *"
+                  type="password"
+                  icon={Lock}
+                  value={adminCurrentPassword}
+                  onChange={(e) => setAdminCurrentPassword(e.target.value)}
+                  placeholder="Enter current password"
+                  required
+                />
+              </div>
+              <Input
+                label="New Password *"
+                type="password"
+                icon={Lock}
+                value={adminNewPassword}
+                onChange={(e) => setAdminNewPassword(e.target.value)}
+                placeholder="Min. 6 characters"
+                helperText="Must be at least 6 characters"
+                required
+              />
+              <Input
+                label="Confirm New Password *"
+                type="password"
+                icon={Lock}
+                value={adminConfirmPassword}
+                onChange={(e) => setAdminConfirmPassword(e.target.value)}
+                placeholder="Re-enter new password"
+                required
+              />
+            </div>
+
+            <div className="pt-4 border-t border-gray-100 flex justify-end">
+              <Button
+                type="submit"
+                icon={KeyRound}
+                loading={isUpdatingAdminPassword}
+                className="px-6"
+              >
+                Update Password
+              </Button>
+            </div>
+          </form>
         </Card>
       )}
 

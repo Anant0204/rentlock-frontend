@@ -311,18 +311,56 @@ export default function ManagerList() {
   }, [allProperties]);
 
   const handleExportCsv = () => {
-    const headers = 'ID,Name,Email,Phone,Emergency Contact,Status,Assigned Properties,Spending Cap\n';
-    const rows = (filteredManagers || [])
-      .map(
-        (m) =>
-          `"${m.id}","${m.name}","${m.email}","${m.phone}","${m.emergencyContact || ''}","${m.status}","${(m.properties || []).join(', ')}",${m.spendingCap || 1000}`
-      )
-      .join('\n');
-    const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8' });
+    const escapeCsv = (val) => {
+      if (val === null || val === undefined) return '""';
+      const str = String(val).replace(/"/g, '""');
+      return `"${str}"`;
+    };
+
+    const headers = [
+      'Manager ID',
+      'Manager Name',
+      'Employment Type',
+      'Performance Rating',
+      'Email Address',
+      'Phone Number',
+      'Shift Timing',
+      'Assigned Properties',
+      'Approval Spending Cap',
+      'Portal Login Status',
+      'Account Status',
+    ].join(',');
+
+    const rows = (filteredManagers || []).map((m) => {
+      const assigned = Array.isArray(m.properties) && m.properties.length > 0
+        ? m.properties.map((p) => (typeof p === 'object' && p !== null ? p.name : String(p))).join(', ')
+        : 'No assigned properties';
+
+      const status = m.archived || m.status === 'Deactivated'
+        ? 'Deactivated'
+        : (m.status || 'Active');
+
+      return [
+        escapeCsv(m.id || '—'),
+        escapeCsv(m.name || '—'),
+        escapeCsv(m.employmentType || 'Full-Time'),
+        escapeCsv(`${m.rating || '5.0'} ★`),
+        escapeCsv(m.email || '—'),
+        escapeCsv(m.phone || '—'),
+        escapeCsv(m.shift || 'Day (8 AM–5 PM)'),
+        escapeCsv(assigned),
+        escapeCsv(formatUsd(m.spendingCap || 1000)),
+        escapeCsv('Password Active'),
+        escapeCsv(status),
+      ].join(',');
+    }).join('\r\n');
+
+    const csvContent = '\uFEFF' + headers + '\r\n' + rows;
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'RentLock-Managers-Roster.csv';
+    a.download = `RentLock-Managers-Roster-${new Date().toISOString().split('T')[0]}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

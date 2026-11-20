@@ -53,6 +53,7 @@ import ReportsDashboard from '../pages/reports/ReportsDashboard';
 
 // Settings
 import SettingsPage from '../pages/settings/SettingsPage';
+import ProfileSettings from '../pages/settings/ProfileSettings';
 
 // Operations & Property Services (Admin)
 import OperationsOverview from '../pages/operations/OperationsOverview';
@@ -152,6 +153,9 @@ export default function AppRoutes() {
 
         {/* Settings */}
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/manager/settings" element={<ProfileSettings />} />
+        <Route path="/owner/settings" element={<ProfileSettings />} />
+        <Route path="/tenant/settings" element={<ProfileSettings />} />
 
         {/* Tenant Portal */}
         <Route path="/tenant/pay" element={<TenantPay />} />

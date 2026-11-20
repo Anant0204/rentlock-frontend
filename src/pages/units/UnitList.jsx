@@ -331,6 +331,7 @@ export default function UnitList() {
               Manage Unit Types
             </Button>
             <Button variant="secondary" icon={Download} onClick={handleExport} size="sm">Export</Button>
+            {/*
             <input
               type="file"
               ref={fileInputRef}
@@ -346,6 +347,7 @@ export default function UnitList() {
             >
               Import
             </Button>
+            */}
             <Button icon={Plus} onClick={() => navigate('/units/add')} className="shadow-lg shadow-indigo-100 py-2 px-4 text-xs font-bold whitespace-nowrap">
               Add Unit
             </Button>
