@@ -50,12 +50,24 @@ export function getOwnerPortalState() {
   const allProps = getProperties().filter((p) => !p.archived);
   const activeName = activeUser?.name?.toLowerCase() || '';
 
-  // Synchronize properties owned by this owner
+  // Synchronize properties owned strictly by this owner
   const matchingProps = allProps.filter((p) => {
-    if (!activeName) return true;
-    if (Array.isArray(p.owners) && p.owners.some((o) => o.name?.toLowerCase() === activeName)) return true;
+    if (!activeName) return false;
+    // Direct match by ID
+    if (p.ownerId && activeUser?.id && Number(p.ownerId) === Number(activeUser.id)) return true;
+    // Match by owners array
+    if (Array.isArray(p.owners) && p.owners.some((o) => (o.name || '').toLowerCase().includes(activeName))) return true;
+    // Match by owner string e.g. "simba", "simba (100%)"
     if (typeof p.owner === 'string' && p.owner.toLowerCase().includes(activeName)) return true;
-    if (customOwnerData?.properties?.some((pn) => pn.toLowerCase() === p.name.toLowerCase())) return true;
+    // Match by accessNotes tag
+    if (p.accessNotes && p.accessNotes.toLowerCase().includes(`[owner:${activeName}`)) return true;
+    // Match by customOwnerData properties
+    if (customOwnerData?.properties?.some((pn) => pn.toLowerCase() === (p.name || '').toLowerCase())) return true;
+    if (customOwnerData?.assignedProperty && (p.name || '').toLowerCase() === customOwnerData.assignedProperty.toLowerCase()) return true;
+    // Claire Bennett demo account default portfolio
+    if (activeName === 'claire bennett' || activeUser?.email === 'owner@rentlock.com') {
+      return ['Sunrise Residency', 'Green Valley Villas', 'Metro Business Park'].includes(p.name);
+    }
     return false;
   });
 
@@ -80,23 +92,20 @@ export function getOwnerPortalState() {
   });
 
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const userSpecificKey = `${STORAGE_KEY}_${activeUser?.id || activeUser?.email || 'default'}`;
+    const raw = localStorage.getItem(userSpecificKey);
     const parsed = raw ? JSON.parse(raw) : clone(INITIAL_OWNER_PORTAL_DATA);
     const base = (!Array.isArray(parsed?.properties) || !Array.isArray(parsed?.ledgerEntries))
       ? clone(INITIAL_OWNER_PORTAL_DATA)
       : parsed;
 
-    const existingPropNames = new Set(base.properties.map((p) => p.name.toLowerCase()));
-    const newProps = mappedProps.filter((p) => !existingPropNames.has(p.name.toLowerCase()));
-    const finalProps = [...base.properties, ...newProps];
-
     return {
       ...base,
       ownerProfile: resolveOwnerProfile(base.ownerProfile || INITIAL_OWNER_PORTAL_DATA.ownerProfile),
-      properties: finalProps,
-      selectedPropertyId: finalProps.some((p) => p.id === base.selectedPropertyId)
+      properties: mappedProps,
+      selectedPropertyId: mappedProps.some((p) => p.id === base.selectedPropertyId)
         ? base.selectedPropertyId
-        : finalProps[0]?.id || 'all',
+        : mappedProps[0]?.id || 'all',
     };
   } catch {
     return {

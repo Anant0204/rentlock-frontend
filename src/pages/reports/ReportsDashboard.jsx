@@ -337,194 +337,188 @@ export default function ReportsDashboard() {
 
   // Dynamic KPI Summary Cards according to the active selected report
   const dynamicKpiCards = useMemo(() => {
-    switch (activeReport) {
-      case 'rent-roll': {
-        const totalUnits = scopedUnits.length;
-        const occUnits = scopedUnits.filter((u) => u.status === 'Occupied').length;
-        const vacUnits = scopedUnits.filter((u) => u.status !== 'Occupied').length;
-        const vacRate = totalUnits > 0 ? ((vacUnits / totalUnits) * 100).toFixed(1) : '0.0';
+    const reportKey = (activeReport || '').toLowerCase();
 
-        // Profit / Rent Revenue generated from active occupied units
-        const profitFromOccupied = scopedUnits
-          .filter((u) => u.status === 'Occupied')
-          .reduce((s, u) => s + (Number(u.rent || u.rentAmount || 0)), 0);
+    // 1. Profit & Loss (P&L) Report
+    if (reportKey.includes('pnl') || reportKey.includes('profit')) {
+      const margin = summary.totalRevenue > 0
+        ? ((summary.noi / summary.totalRevenue) * 100).toFixed(1)
+        : '0.0';
 
-        // Unrealized rent loss from vacant units
-        const lossFromVacant = scopedUnits
-          .filter((u) => u.status !== 'Occupied')
-          .reduce((s, u) => s + (Number(u.rent || u.rentAmount || 0)), 0);
-
-        return [
-          {
-            title: 'Total Units',
-            value: `${totalUnits}`,
-            subtitle: `${occUnits} Occupied · ${vacUnits} Vacant`,
-            icon: Building2,
-            color: 'blue',
-          },
-          {
-            title: 'Vacant Units',
-            value: `${vacUnits}`,
-            subtitle: vacUnits > 0 ? `${vacRate}% Vacancy Rate` : '0% Vacancy (Fully Leased)',
-            icon: AlertTriangle,
-            color: 'amber',
-          },
-          {
-            title: 'Profit from Occupied Units',
-            value: formatUsd(profitFromOccupied),
-            change: 8.5,
-            changeLabel: `From ${occUnits} occupied unit${occUnits === 1 ? '' : 's'}`,
-            icon: TrendingUp,
-            color: 'green',
-          },
-          {
-            title: 'Loss from Vacant Units',
-            value: formatUsd(lossFromVacant),
-            subtitle: vacUnits > 0 ? `Unrealized rent (${vacUnits} vacant unit${vacUnits === 1 ? '' : 's'})` : '$0 (No vacancy loss)',
-            icon: TrendingDown,
-            color: 'red',
-          },
-        ];
-      }
-
-      case 'pnl': {
-        const margin = summary.totalRevenue > 0
-          ? ((summary.noi / summary.totalRevenue) * 100).toFixed(1)
-          : '0.0';
-
-        return [
-          {
-            title: `Revenue (${basis})`,
-            value: formatUsd(summary.totalRevenue),
-            change: 8.5,
-            changeLabel: dateRange,
-            icon: TrendingUp,
-            color: 'green',
-          },
-          {
-            title: 'Operating Expenses',
-            value: formatUsd(summary.totalExpenses),
-            change: 5.2,
-            changeLabel: 'Operating costs',
-            icon: DollarSign,
-            color: 'red',
-          },
-          {
-            title: 'Net Operating Income',
-            value: formatUsd(summary.noi),
-            subtitle: 'Net Operating Profit',
-            icon: BarChart3,
-            color: 'blue',
-          },
-          {
-            title: 'Operating Profit Margin',
-            value: `${margin}%`,
-            subtitle: 'Net Profitability',
-            icon: Percent,
-            color: 'purple',
-          },
-        ];
-      }
-
-      case 'gl': {
-        const totalCredits = scopedInvoices.reduce(
-          (s, i) => s + (Number(i.paidAmount) || Number(i.amount) || Number(i.total) || 0),
-          0
-        ) || summary.totalRevenue || 0;
-
-        const totalDebits = scopedExpenses.reduce(
-          (s, e) => s + (Number(e.amount) || 0),
-          0
-        ) || summary.totalExpenses || 0;
-
-        const netBalance = totalCredits - totalDebits;
-        const totalEntries = scopedInvoices.length + scopedExpenses.length || reportRows.rows.length;
-
-        return [
-          {
-            title: 'Total Credits (Income)',
-            value: formatUsd(totalCredits),
-            changeLabel: `${scopedInvoices.length} invoices posted`,
-            icon: TrendingUp,
-            color: 'green',
-          },
-          {
-            title: 'Total Debits (Expenses)',
-            value: formatUsd(totalDebits),
-            changeLabel: `${scopedExpenses.length} expense postings`,
-            icon: DollarSign,
-            color: 'red',
-          },
-          {
-            title: 'Net Ledger Balance',
-            value: formatUsd(netBalance),
-            subtitle: 'Reconciled Cash Position',
-            icon: BarChart3,
-            color: 'blue',
-          },
-          {
-            title: 'Total Journal Entries',
-            value: `${totalEntries}`,
-            changeLabel: 'Reconciled records',
-            icon: FileText,
-            color: 'purple',
-          },
-        ];
-      }
-
-      case 'maintenance': {
-        const totalTickets = scopedWorkOrders.length;
-        const openTickets = scopedWorkOrders.filter((w) => {
-          const st = (w.status || '').toLowerCase();
-          return st.includes('open') || st.includes('progress') || st.includes('pending');
-        }).length;
-        const resolvedTickets = scopedWorkOrders.filter((w) => {
-          const st = (w.status || '').toLowerCase();
-          return st.includes('resolved') || st.includes('closed');
-        }).length;
-        const totalCost = scopedWorkOrders.reduce((s, w) => s + (Number(w.cost || w.estimatedCost || 0)), 0);
-        const resRate = totalTickets > 0 ? ((resolvedTickets / totalTickets) * 100).toFixed(0) : '100';
-
-        return [
-          {
-            title: 'Total Work Orders',
-            value: `${totalTickets}`,
-            changeLabel: 'Operational tickets logged',
-            icon: Wrench,
-            color: 'blue',
-          },
-          {
-            title: 'Open / In Progress',
-            value: `${openTickets}`,
-            subtitle: openTickets > 0 ? 'Requires attention' : 'All tickets resolved',
-            icon: AlertTriangle,
-            color: 'amber',
-          },
-          {
-            title: 'Resolved Requests',
-            value: `${resolvedTickets}`,
-            changeLabel: `${resRate}% completion rate`,
-            icon: CheckCircle2,
-            color: 'green',
-          },
-          {
-            title: 'Total Maintenance Cost',
-            value: formatUsd(totalCost),
-            changeLabel: 'Repairs & vendor bills',
-            icon: DollarSign,
-            color: 'purple',
-          },
-        ];
-      }
-
-      default:
-        return [
-          { title: `Revenue (${basis})`, value: formatUsd(summary.totalRevenue), change: 8.5, changeLabel: dateRange, icon: TrendingUp, color: 'green' },
-          { title: 'Operating Expenses', value: formatUsd(summary.totalExpenses), change: 5.2, changeLabel: 'Operating costs', icon: DollarSign, color: 'red' },
-          { title: 'Net Operating Income', value: formatUsd(summary.noi), subtitle: 'Net Operating Profit', icon: BarChart3, color: 'blue' },
-          { title: 'Portfolio Occupancy', value: `${summary.occupancy}%`, change: 3.2, changeLabel: 'Across active units', icon: Building2, color: 'purple' },
-        ];
+      return [
+        {
+          title: `Revenue (${basis})`,
+          value: formatUsd(summary.totalRevenue),
+          change: 8.5,
+          changeLabel: dateRange,
+          icon: TrendingUp,
+          color: 'green',
+        },
+        {
+          title: 'Operating Expenses',
+          value: formatUsd(summary.totalExpenses),
+          change: 5.2,
+          changeLabel: 'Operating costs',
+          icon: DollarSign,
+          color: 'red',
+        },
+        {
+          title: 'Net Operating Income',
+          value: formatUsd(summary.noi),
+          subtitle: 'Net Operating Profit',
+          icon: BarChart3,
+          color: 'blue',
+        },
+        {
+          title: 'Operating Profit Margin',
+          value: `${margin}%`,
+          subtitle: 'Net Profitability',
+          icon: Percent,
+          color: 'purple',
+        },
+      ];
     }
+
+    // 2. General Ledger Report
+    if (reportKey.includes('gl') || reportKey.includes('ledger')) {
+      const totalCredits = scopedInvoices.reduce(
+        (s, i) => s + (Number(i.paidAmount) || Number(i.amount) || Number(i.total) || 0),
+        0
+      ) || summary.totalRevenue || 0;
+
+      const totalDebits = scopedExpenses.reduce(
+        (s, e) => s + (Number(e.amount) || 0),
+        0
+      ) || summary.totalExpenses || 0;
+
+      const netBalance = totalCredits - totalDebits;
+      const totalEntries = scopedInvoices.length + scopedExpenses.length || reportRows.rows.length;
+
+      return [
+        {
+          title: 'Total Credits (Income)',
+          value: formatUsd(totalCredits),
+          changeLabel: `${scopedInvoices.length} invoices posted`,
+          icon: TrendingUp,
+          color: 'green',
+        },
+        {
+          title: 'Total Debits (Expenses)',
+          value: formatUsd(totalDebits),
+          changeLabel: `${scopedExpenses.length} expense postings`,
+          icon: DollarSign,
+          color: 'red',
+        },
+        {
+          title: 'Net Ledger Balance',
+          value: formatUsd(netBalance),
+          subtitle: 'Reconciled Cash Position',
+          icon: BarChart3,
+          color: 'blue',
+        },
+        {
+          title: 'Total Journal Entries',
+          value: `${totalEntries}`,
+          changeLabel: 'Reconciled records',
+          icon: FileText,
+          color: 'purple',
+        },
+      ];
+    }
+
+    // 3. Maintenance Report
+    if (reportKey.includes('maint')) {
+      const totalTickets = scopedWorkOrders.length;
+      const openTickets = scopedWorkOrders.filter((w) => {
+        const st = (w.status || '').toLowerCase();
+        return st.includes('open') || st.includes('progress') || st.includes('pending');
+      }).length;
+      const resolvedTickets = scopedWorkOrders.filter((w) => {
+        const st = (w.status || '').toLowerCase();
+        return st.includes('resolved') || st.includes('closed');
+      }).length;
+      const totalCost = scopedWorkOrders.reduce((s, w) => s + (Number(w.cost || w.estimatedCost || 0)), 0);
+      const resRate = totalTickets > 0 ? ((resolvedTickets / totalTickets) * 100).toFixed(0) : '100';
+
+      return [
+        {
+          title: 'Total Work Orders',
+          value: `${totalTickets}`,
+          changeLabel: 'Operational tickets logged',
+          icon: Wrench,
+          color: 'blue',
+        },
+        {
+          title: 'Open / In Progress',
+          value: `${openTickets}`,
+          subtitle: openTickets > 0 ? 'Requires attention' : 'All tickets resolved',
+          icon: AlertTriangle,
+          color: 'amber',
+        },
+        {
+          title: 'Resolved Requests',
+          value: `${resolvedTickets}`,
+          changeLabel: `${resRate}% completion rate`,
+          icon: CheckCircle2,
+          color: 'green',
+        },
+        {
+          title: 'Total Maintenance Cost',
+          value: formatUsd(totalCost),
+          changeLabel: 'Repairs & vendor bills',
+          icon: DollarSign,
+          color: 'purple',
+        },
+      ];
+    }
+
+    // 4. Default: Rent Roll Report (1. Rent Roll)
+    const totalUnits = scopedUnits.length;
+    const occUnits = scopedUnits.filter((u) => u.status === 'Occupied').length;
+    const vacUnits = scopedUnits.filter((u) => u.status !== 'Occupied').length;
+    const vacRate = totalUnits > 0 ? ((vacUnits / totalUnits) * 100).toFixed(1) : '0.0';
+
+    // Profit / Rent Revenue generated from active occupied units
+    const profitFromOccupied = scopedUnits
+      .filter((u) => u.status === 'Occupied')
+      .reduce((s, u) => s + (Number(u.rent || u.rentAmount || 0)), 0);
+
+    // Unrealized rent loss from vacant units
+    const lossFromVacant = scopedUnits
+      .filter((u) => u.status !== 'Occupied')
+      .reduce((s, u) => s + (Number(u.rent || u.rentAmount || 0)), 0);
+
+    return [
+      {
+        title: 'Total Units',
+        value: `${totalUnits}`,
+        subtitle: `${occUnits} Occupied · ${vacUnits} Vacant`,
+        icon: Building2,
+        color: 'blue',
+      },
+      {
+        title: 'Vacant Units',
+        value: `${vacUnits}`,
+        subtitle: vacUnits > 0 ? `${vacRate}% Vacancy Rate` : '0% Vacancy (Fully Leased)',
+        icon: AlertTriangle,
+        color: 'amber',
+      },
+      {
+        title: 'Profit from Occupied Units',
+        value: formatUsd(profitFromOccupied),
+        change: 8.5,
+        changeLabel: `From ${occUnits} occupied unit${occUnits === 1 ? '' : 's'}`,
+        icon: TrendingUp,
+        color: 'green',
+      },
+      {
+        title: 'Loss from Vacant Units',
+        value: formatUsd(lossFromVacant),
+        subtitle: vacUnits > 0 ? `Unrealized rent (${vacUnits} vacant unit${vacUnits === 1 ? '' : 's'})` : '$0 (No vacancy loss)',
+        icon: TrendingDown,
+        color: 'red',
+      },
+    ];
   }, [activeReport, scopedUnits, scopedInvoices, scopedExpenses, scopedWorkOrders, summary, basis, dateRange, reportRows]);
 
   return (

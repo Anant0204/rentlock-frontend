@@ -4,7 +4,7 @@ import apiClient from '../../services/apiClient';
 import {
   Briefcase, Building2, Wrench, DollarSign, ShieldCheck,
   Edit2, Archive, ArrowLeft, Mail, Phone, Clock,
-  CheckCircle2, RotateCcw, KeyRound, Users
+  CheckCircle2, RotateCcw, KeyRound, Users, Trash2, AlertTriangle
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import PageHeader from '../../components/shared/PageHeader';
@@ -16,7 +16,7 @@ import Avatar from '../../components/ui/Avatar';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
-import { getManagers, updateManager, archiveManager } from '../../data/mockExtra';
+import { getManagers, updateManager, archiveManager, deleteManager } from '../../data/mockExtra';
 import { getProperties } from '../../data/mockProperties';
 import { mockComplaints } from '../../data/mockExtra';
 import { formatUsd } from '../../utils/formatters';
@@ -26,6 +26,8 @@ export default function ManagerDetail() {
   const navigate = useNavigate();
   const [managers, setManagers] = useState(() => getManagers());
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     apiClient.get('/managers').then((res) => {
@@ -117,6 +119,20 @@ export default function ManagerDetail() {
     toast.success(next ? `${manager.name} deactivated.` : `${manager.name} reactivated.`);
   };
 
+  const handleDeleteManager = async () => {
+    try {
+      setIsDeleting(true);
+      await deleteManager(manager.id, manager.email);
+      toast.success(`Manager ${manager.name} deleted successfully.`);
+      navigate('/managers');
+    } catch (err) {
+      toast.error('Failed to delete manager: ' + (err?.message || 'Unknown error'));
+    } finally {
+      setIsDeleting(false);
+      setIsDeleteModalOpen(false);
+    }
+  };
+
   return (
     <div className="space-y-6 pb-12">
       <PageHeader
@@ -153,6 +169,14 @@ export default function ManagerDetail() {
             >
               {manager.archived ? 'Reactivate' : 'Deactivate'}
             </Button>
+            <Button
+              variant="danger"
+              icon={Trash2}
+              size="sm"
+              onClick={() => setIsDeleteModalOpen(true)}
+            >
+              Delete
+            </Button>
           </div>
         }
       />
@@ -165,8 +189,8 @@ export default function ManagerDetail() {
             <div>
               <div className="flex items-center gap-3">
                 <h2 className="text-xl font-bold text-gray-900">{manager.name}</h2>
-                {manager.archived ? (
-                  <Badge variant="danger">Archived</Badge>
+                {manager.archived || manager.status === 'Deactivated' ? (
+                  <Badge variant="danger">Deactivated</Badge>
                 ) : (
                   <Badge variant="success">Active Manager</Badge>
                 )}
@@ -440,6 +464,38 @@ export default function ManagerDetail() {
                 onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
               />
             </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        title="Delete Property Manager"
+        size="md"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setIsDeleteModalOpen(false)} disabled={isDeleting}>
+              Cancel
+            </Button>
+            <Button variant="danger" icon={Trash2} onClick={handleDeleteManager} loading={isDeleting}>
+              Delete Manager
+            </Button>
+          </>
+        }
+      >
+        <div className="flex items-start gap-3 text-xs text-gray-600">
+          <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
+            <AlertTriangle className="w-5 h-5" />
+          </div>
+          <div>
+            <p className="font-semibold text-gray-900 text-sm">
+              Permanently delete {manager.name}?
+            </p>
+            <p className="mt-1 text-gray-500 leading-relaxed">
+              This action will permanently delete this manager's account from the database and dissociate them from any managed properties. This action cannot be undone.
+            </p>
           </div>
         </div>
       </Modal>

@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Briefcase, UserCheck, Plus, Search, Eye, Edit2, Archive,
   RotateCcw, Download, CheckCircle2, AlertTriangle, KeyRound,
-  ShieldCheck, Building2, Wrench, DollarSign, Phone, Mail, Clock
+  ShieldCheck, Building2, Wrench, DollarSign, Phone, Mail, Clock, Trash2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import PageHeader from '../../components/shared/PageHeader';
@@ -16,11 +16,11 @@ import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
 import Avatar from '../../components/ui/Avatar';
 import apiClient from '../../services/apiClient';
-import { getManagers, addManager, updateManager, archiveManager } from '../../data/mockExtra';
+import { getManagers, addManager, updateManager, archiveManager, deleteManager } from '../../data/mockExtra';
 import { getProperties } from '../../data/mockProperties';
 import { formatUsd } from '../../utils/formatters';
 
-const STATUS_FILTERS = ['All Statuses', 'Active', 'On Leave', 'Archived'];
+const STATUS_FILTERS = ['All Statuses', 'Active', 'On Leave', 'Deactivated'];
 const SPENDING_CAP_OPTIONS = [500, 1000, 1500, 2500, 5000];
 
 export default function ManagerList() {
@@ -72,6 +72,8 @@ export default function ManagerList() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(() => searchParams.get('add') === 'true');
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isArchiveModalOpen, setIsArchiveModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [targetManager, setTargetManager] = useState(null);
 
   const allProperties = useMemo(() => getProperties().filter((p) => !p.archived), []);
@@ -97,8 +99,9 @@ export default function ManagerList() {
     const q = searchTerm.trim().toLowerCase();
     return (managers || []).filter(Boolean).filter((m) => {
       if (statusFilter !== 'All Statuses') {
-        if (statusFilter === 'Archived' && !m.archived) return false;
-        if (statusFilter !== 'Archived' && (m.archived || m.status !== statusFilter)) return false;
+        const isDeact = m.archived || m.status === 'Deactivated';
+        if (statusFilter === 'Deactivated' && !isDeact) return false;
+        if (statusFilter !== 'Deactivated' && (isDeact || m.status !== statusFilter)) return false;
       }
       if (propertyFilter !== 'All Properties') {
         const propNames = (m.properties || []).map((p) => (typeof p === 'object' && p !== null ? p.name : String(p)));
@@ -120,7 +123,7 @@ export default function ManagerList() {
 
   // Aggregate stats
   const safeManagers = (managers || []).filter(Boolean);
-  const activeManagers = safeManagers.filter((m) => !m.archived);
+  const activeManagers = safeManagers.filter((m) => !m.archived && m.status !== 'Deactivated');
   const totalAssignedProperties = activeManagers.reduce((s, m) => s + (m.properties?.length || 0), 0);
   const totalActiveWorkOrders = activeManagers.reduce((s, m) => s + (Number(m.activeWorkOrders) || 0), 0);
   const totalSpendingCaps = activeManagers.reduce((s, m) => s + (Number(m.spendingCap) || 0), 0);
@@ -266,9 +269,24 @@ export default function ManagerList() {
     setIsArchiveModalOpen(false);
     toast.success(
       willArchive
-        ? `${targetManager.name} deactivated & archived.`
+        ? `${targetManager.name} deactivated.`
         : `${targetManager.name} restored to active status.`
     );
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!targetManager) return;
+    try {
+      setIsDeleting(true);
+      await deleteManager(targetManager.id, targetManager.email);
+      refreshManagers();
+      setIsDeleteModalOpen(false);
+      toast.success(`Manager ${targetManager.name} permanently deleted.`);
+    } catch (err) {
+      toast.error('Failed to delete manager: ' + (err?.message || 'Unknown error'));
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const togglePropertyAssignment = (propName) => {
@@ -535,8 +553,8 @@ export default function ManagerList() {
 
                       {/* Status */}
                       <td className="py-3.5 px-4">
-                        {mgr.archived ? (
-                          <Badge variant="danger" size="sm">Archived</Badge>
+                        {mgr.archived || mgr.status === 'Deactivated' ? (
+                          <Badge variant="danger" size="sm">Deactivated</Badge>
                         ) : mgr.status === 'Active' ? (
                           <Badge variant="success" size="sm">Active</Badge>
                         ) : (
@@ -565,7 +583,7 @@ export default function ManagerList() {
                           </button>
                           <button
                             type="button"
-                            title={mgr.archived ? 'Restore Manager' : 'Deactivate / Archive Manager'}
+                            title={mgr.archived ? 'Reactivate Manager' : 'Deactivate Manager'}
                             onClick={() => {
                               setTargetManager(mgr);
                               setIsArchiveModalOpen(true);
@@ -580,6 +598,17 @@ export default function ManagerList() {
                             ) : (
                               <Archive className="w-3.5 h-3.5" />
                             )}
+                          </button>
+                          <button
+                            type="button"
+                            title="Delete Manager"
+                            onClick={() => {
+                              setTargetManager(mgr);
+                              setIsDeleteModalOpen(true);
+                            }}
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </td>
@@ -813,11 +842,11 @@ export default function ManagerList() {
         </div>
       </Modal>
 
-      {/* ARCHIVE / RESTORE CONFIRMATION MODAL */}
+      {/* DEACTIVATE / REACTIVATE CONFIRMATION MODAL */}
       <Modal
         isOpen={isArchiveModalOpen}
         onClose={() => setIsArchiveModalOpen(false)}
-        title={targetManager?.archived ? 'Restore Manager Profile' : 'Deactivate / Archive Manager'}
+        title={targetManager?.archived ? 'Reactivate Manager Account' : 'Deactivate Manager Account'}
         size="md"
         footer={
           <>
@@ -828,7 +857,7 @@ export default function ManagerList() {
               variant={targetManager?.archived ? 'primary' : 'danger'}
               onClick={handleConfirmArchive}
             >
-              {targetManager?.archived ? 'Confirm Restore' : 'Confirm Deactivate'}
+              {targetManager?.archived ? 'Confirm Reactivate' : 'Confirm Deactivate'}
             </Button>
           </>
         }
@@ -856,6 +885,43 @@ export default function ManagerList() {
               {targetManager?.archived
                 ? 'This manager will be reactivated, restoring their ability to log into the Manager Workspace and supervise assigned properties.'
                 : 'Deactivating this manager prevents portal login. Their assigned properties can be reassigned to other managers.'}
+            </p>
+          </div>
+        </div>
+      </Modal>
+
+      {/* DELETE CONFIRMATION MODAL */}
+      <Modal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        title="Delete Property Manager"
+        size="md"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setIsDeleteModalOpen(false)} disabled={isDeleting}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              icon={Trash2}
+              onClick={handleConfirmDelete}
+              loading={isDeleting}
+            >
+              Delete Manager
+            </Button>
+          </>
+        }
+      >
+        <div className="flex items-start gap-3 text-xs text-gray-600">
+          <div className="w-9 h-9 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
+            <Trash2 className="w-5 h-5" />
+          </div>
+          <div>
+            <p className="font-semibold text-gray-900">
+              Permanently delete {targetManager?.name}?
+            </p>
+            <p className="mt-1 text-gray-500 leading-relaxed">
+              This manager's account and login will be permanently deleted from the database. Any properties currently assigned to this manager will be safely set to unassigned. This action cannot be undone.
             </p>
           </div>
         </div>

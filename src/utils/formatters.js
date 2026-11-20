@@ -66,6 +66,7 @@ export const getStatusColor = (status) => {
     Active: 'bg-emerald-100 text-emerald-700',
     Inactive: 'bg-gray-100 text-gray-600',
     Archived: 'bg-gray-100 text-gray-600',
+    Deactivated: 'bg-rose-100 text-rose-700',
     Expired: 'bg-red-100 text-red-700',
     'Expiring Soon': 'bg-amber-100 text-amber-700',
     Draft: 'bg-slate-100 text-slate-600',

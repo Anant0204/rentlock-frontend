@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Building2, MapPin, Layers, DollarSign, CheckCircle2,
-  ChevronRight, ChevronLeft, Plus, Trash2, Sparkles, Upload, Download, Bed, Bath, Car
+  ChevronRight, ChevronLeft, Plus, Trash2, Sparkles, Upload, Download, Bed, Bath, Car, X
 } from 'lucide-react';
 import PageHeader from '../../components/shared/PageHeader';
 import Card from '../../components/ui/Card';
