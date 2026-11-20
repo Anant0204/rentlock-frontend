@@ -216,19 +216,6 @@ export const authService = {
           (matchedCustomUser.password && String(matchedCustomUser.password) === enteredPassword);
 
         if (isPasswordMatch) {
-          // Success! Keep password synced so user can log in with whatever password they use
-          if (enteredPassword && enteredPassword !== matchedCustomUser.password) {
-            matchedCustomUser.password = enteredPassword;
-            try {
-              const mgrs = JSON.parse(localStorage.getItem('custom_managers') || '[]');
-              const idx = mgrs.findIndex((m) => m.id === matchedCustomUser.id || m.email?.toLowerCase() === cleanEmail);
-              if (idx > -1) {
-                mgrs[idx].password = enteredPassword;
-                localStorage.setItem('custom_managers', JSON.stringify(mgrs));
-              }
-            } catch {}
-          }
-
           const role = (matchedCustomUser.role === 'Property Manager' || matchedCustomUser.role === 'manager' || customManagers.some(m => m.id === matchedCustomUser.id))
             ? 'manager'
             : (matchedCustomUser.ownerType || customOwners.some(o => o.id === matchedCustomUser.id) ? 'owner' : (matchedCustomUser.unitNumber ? 'tenant' : cleanRole));

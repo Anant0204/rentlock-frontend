@@ -470,7 +470,7 @@ export default function OwnerList() {
                         </span>
                       </div>
                       <p className="text-xs font-mono text-gray-500 mt-1">
-                        Pass: {owner.password ? '••••••••' : 'demo123'}
+                        Pass: ••••••••
                       </p>
                     </td>
 

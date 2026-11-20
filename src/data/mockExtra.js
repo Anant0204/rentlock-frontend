@@ -38,7 +38,7 @@ export const addManager = (manager) => {
     ...manager,
     id: manager.id || maxId + 1,
     role: 'Property Manager',
-    password: manager.password || 'demo123',
+    password: '••••••••',
     employmentType: manager.employmentType || 'Full-Time',
     spendingCap: Number(manager.spendingCap) || 1000,
     properties: manager.properties || [],
@@ -73,11 +73,11 @@ export const updateManager = (id, data) => {
       status: merged.status,
     };
     if (id && !isNaN(Number(id))) {
-      apiClient.put(`/managers/${id}`, payload).catch(() => {
-        apiClient.post('/managers', payload).catch(() => {});
+      apiClient.put(`/managers/${id}`, payload).catch((err) => {
+        apiClient.post('/managers', payload).catch((e) => console.warn('[ManagerSync] Post failed:', e.message));
       });
     } else {
-      apiClient.post('/managers', payload).catch(() => {});
+      apiClient.post('/managers', payload).catch((e) => console.warn('[ManagerSync] Post fallback failed:', e.message));
     }
 
     if (Array.isArray(merged.properties)) {
@@ -87,7 +87,7 @@ export const updateManager = (id, data) => {
         const assignedSet = new Set(merged.properties.map((p) => String(p).trim().toLowerCase()));
         for (const p of propList) {
           if (p.id && (assignedSet.has(String(p.name).trim().toLowerCase()) || assignedSet.has(String(p.id)))) {
-            apiClient.put(`/properties/${p.id}`, { managerId: Number(id) || undefined, manager: merged.name }).catch(() => {});
+            apiClient.put(`/properties/${p.id}`, { managerId: Number(id) || undefined, manager: merged.name }).catch((e) => console.warn('[PropertySync] Update manager failed:', e.message));
           }
         }
       } catch {}
@@ -108,9 +108,9 @@ export const archiveManager = (id, archived = true) => {
 
 export const deleteManager = async (id, email) => {
   if (id && !isNaN(Number(id))) {
-    await apiClient.delete(`/managers/${id}${email ? `?email=${encodeURIComponent(email)}` : ''}`).catch(() => {});
+    await apiClient.delete(`/managers/${id}${email ? `?email=${encodeURIComponent(email)}` : ''}`).catch((e) => console.warn('[ManagerSync] Delete failed:', e.message));
   } else if (email) {
-    await apiClient.delete(`/managers/0?email=${encodeURIComponent(email)}`).catch(() => {});
+    await apiClient.delete(`/managers/0?email=${encodeURIComponent(email)}`).catch((e) => console.warn('[ManagerSync] Delete by email failed:', e.message));
   }
 
   const saved = localStorage.getItem('custom_managers');
@@ -175,7 +175,7 @@ export const addOwner = (owner) => {
   const newOwner = {
     ...owner,
     id: owner.id || maxId + 1,
-    password: owner.password || 'demo123',
+    password: '••••••••',
     archived: false,
     status: owner.status || 'Active',
     totalRevenue: owner.totalRevenue || 0,

@@ -111,39 +111,51 @@ export default function TenantPay() {
     setIsConfirmOpen(true);
   };
 
-  const handleConfirmPayment = () => {
+  const handleConfirmPayment = async () => {
     if (submitLockRef.current || isSubmitting) return;
     submitLockRef.current = true;
     setIsSubmitting(true);
 
-    setTimeout(() => {
-      try {
-        const result = confirmTenantPayment({
-          amount: parsedAmount,
-          methodId,
-          idempotencyKey: attemptKey,
-        });
+    try {
+      // 1. Submit Payment to Backend API
+      const payRes = await apiClient.post('/portal/tenant/pay', {
+        amount: parsedAmount,
+        paymentMethod: method?.label || methodId || 'Credit Card',
+        isAutopayEnabled: false,
+      });
 
-        setPortalState(result.state);
-        const updatedBalance = computeBalanceSummary(result.state);
-        setAmountInput(
-          updatedBalance.remainingBalance > 0 ? updatedBalance.remainingBalance.toFixed(2) : '0.00'
-        );
-        setConfirmedReceipt(result.receipt);
-        setIsConfirmOpen(false);
+      // 2. Synchronize local tenant portal store & state
+      const result = confirmTenantPayment({
+        amount: parsedAmount,
+        methodId,
+        idempotencyKey: attemptKey,
+      });
 
-        if (result.duplicatePrevented) {
-          toast('Duplicate charge prevented. Showing your confirmed receipt.');
-        } else {
-          toast.success(`Payment of ${formatUsd(result.receipt.amount, 2)} confirmed`);
-        }
-      } catch (err) {
-        toast.error(err.message || 'Unable to confirm payment');
-      } finally {
-        submitLockRef.current = false;
-        setIsSubmitting(false);
+      // If backend issued a receipt with official number, bind it to receipt view
+      if (payRes?.receipt?.receiptNumber && result?.receipt) {
+        result.receipt.id = payRes.receipt.receiptNumber;
       }
-    }, 600);
+
+      setPortalState(result.state);
+      const updatedBalance = computeBalanceSummary(result.state);
+      setAmountInput(
+        updatedBalance.remainingBalance > 0 ? updatedBalance.remainingBalance.toFixed(2) : '0.00'
+      );
+      setConfirmedReceipt(result.receipt);
+      setIsConfirmOpen(false);
+
+      if (result.duplicatePrevented) {
+        toast('Duplicate charge prevented. Showing your confirmed receipt.');
+      } else {
+        toast.success(`Payment of ${formatUsd(result.receipt.amount, 2)} confirmed`);
+      }
+    } catch (err) {
+      console.error('Tenant payment error:', err);
+      toast.error('Payment failed: ' + (err.response?.data?.message || err.message || 'Server error'));
+    } finally {
+      submitLockRef.current = false;
+      setIsSubmitting(false);
+    }
   };
 
   const latestPaidLabel = balance.latestPayment
