@@ -4,27 +4,11 @@ const STORAGE_KEY = 'rentlock_tenant_portal_v1';
 
 export const PAYMENT_METHODS_OPTIONS = [
   {
-    value: 'bank_checking_4821',
-    label: 'Checking •••• 4821 (Bank account — $0 fee)',
-    shortLabel: 'Checking •••• 4821',
-    type: 'bank',
+    value: 'cash',
+    label: 'Cash (Office / Hand-Delivered — $0 fee)',
+    shortLabel: 'Cash',
+    type: 'cash',
     feeRate: 0,
-    flatFee: 0,
-  },
-  {
-    value: 'bank_savings_1190',
-    label: 'Savings •••• 1190 (Bank account — $0 fee)',
-    shortLabel: 'Savings •••• 1190',
-    type: 'bank',
-    feeRate: 0,
-    flatFee: 0,
-  },
-  {
-    value: 'card_visa_9012',
-    label: 'Visa •••• 9012 (Debit / Credit card — 2.9% fee)',
-    shortLabel: 'Visa •••• 9012',
-    type: 'card',
-    feeRate: 0.029,
     flatFee: 0,
   },
 ];
@@ -240,7 +224,7 @@ export function confirmTenantPayment({ amount, methodId, idempotencyKey }) {
 
   const { method, fee, total } = calculateProcessingFee(cleanAmount, methodId);
   if (!method) {
-    throw new Error('Please choose a bank account or card.');
+    throw new Error('Please choose a payment method.');
   }
 
   const now = new Date();

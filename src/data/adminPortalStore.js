@@ -525,6 +525,10 @@ const defaultState = {
     ...DEFAULT_ROLE_PERMISSIONS,
   },
   userPermissions: {
+    'manager@rentlock.com': {
+      ...DEFAULT_ROLE_PERMISSIONS.manager,
+      canAddTenants: true,
+    },
     'sarah.jenkins@rentlock.com': {
       ...DEFAULT_ROLE_PERMISSIONS.manager,
       canAddTenants: true,

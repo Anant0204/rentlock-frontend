@@ -1,6 +1,6 @@
 import { useState, useRef, useMemo, useEffect } from 'react';
 import apiClient from '../../services/apiClient';
-import { CreditCard, CheckCircle2, Lock, Receipt, Printer } from 'lucide-react';
+import { Banknote, CheckCircle2, Lock, Receipt, Printer } from 'lucide-react';
 import toast from 'react-hot-toast';
 import PageHeader from '../../components/shared/PageHeader';
 import Card from '../../components/ui/Card';
@@ -62,7 +62,7 @@ export default function TenantPay() {
   const [amountInput, setAmountInput] = useState(() =>
     balance.remainingBalance > 0 ? balance.remainingBalance.toFixed(2) : '0.00'
   );
-  const [methodId, setMethodId] = useState('');
+  const [methodId, setMethodId] = useState('cash');
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [attemptKey, setAttemptKey] = useState('');
@@ -103,7 +103,7 @@ export default function TenantPay() {
       return;
     }
     if (!methodId) {
-      toast.error('Please choose a bank account or card.');
+      toast.error('Please choose a payment method.');
       return;
     }
     // Generate a unique idempotency key per payment attempt so double-submits cannot duplicate charges
@@ -232,7 +232,7 @@ export default function TenantPay() {
 
             <Select
               label="PAYMENT METHOD"
-              placeholder="Choose bank account or card"
+              placeholder="Choose payment method"
               options={PAYMENT_METHODS_OPTIONS}
               value={methodId}
               onChange={(e) => setMethodId(e.target.value)}
@@ -276,7 +276,7 @@ export default function TenantPay() {
             variant="primary"
             fullWidth
             size="lg"
-            icon={CreditCard}
+            icon={Banknote}
             disabled={balance.remainingBalance <= 0 || isSubmitting}
             onClick={handleContinue}
           >
@@ -284,7 +284,7 @@ export default function TenantPay() {
           </Button>
 
           <p className="text-xs text-gray-500">
-            Your balance updates only after the payment provider confirms it.
+            Your balance updates only after the payment is confirmed.
           </p>
 
           {/* After payment section */}

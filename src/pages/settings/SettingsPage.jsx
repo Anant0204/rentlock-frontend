@@ -195,9 +195,9 @@ export default function SettingsPage() {
     const custom = getManagers().filter((m) => !m.archived);
     const standard = [
       {
-        id: 'sarah.jenkins@rentlock.com',
+        id: 'manager@rentlock.com',
         name: 'Sarah Jenkins',
-        email: 'sarah.jenkins@rentlock.com',
+        email: 'manager@rentlock.com',
         role: 'manager',
         title: 'Lead Operations Manager',
         properties: 'Sunrise Residency, Harborview Lofts, Metro Business Park, Green Valley Villas',
@@ -206,7 +206,11 @@ export default function SettingsPage() {
     const combined = [...standard];
     custom.forEach((c) => {
       const email = (c.email || `${c.name.toLowerCase().replace(/\s+/g, '.')}@rentlock.com`).toLowerCase();
-      if (!combined.some((x) => x.email.toLowerCase() === email)) {
+      const name = (c.name || '').trim().toLowerCase();
+      const alreadyExists = combined.some(
+        (x) => x.email.toLowerCase() === email || x.name.trim().toLowerCase() === name
+      );
+      if (!alreadyExists) {
         combined.push({
           id: email,
           name: c.name,
@@ -235,7 +239,11 @@ export default function SettingsPage() {
     const combined = [...standard];
     custom.forEach((c) => {
       const email = (c.email || `${c.name.toLowerCase().replace(/\s+/g, '.')}@rentlock.com`).toLowerCase();
-      if (!combined.some((x) => x.email.toLowerCase() === email)) {
+      const name = (c.name || '').trim().toLowerCase();
+      const alreadyExists = combined.some(
+        (x) => x.email.toLowerCase() === email || x.name.trim().toLowerCase() === name
+      );
+      if (!alreadyExists) {
         combined.push({
           id: email,
           name: c.name,
@@ -271,10 +279,10 @@ export default function SettingsPage() {
   };
 
   const [rbacConfigMode, setRbacConfigMode] = useState('specific_user'); // 'specific_user' | 'role_tier'
-  const [selectedUserKey, setSelectedUserKey] = useState('sarah.jenkins@rentlock.com');
+  const [selectedUserKey, setSelectedUserKey] = useState('manager@rentlock.com');
   const [selectedRoleTier, setSelectedRoleTier] = useState('manager');
   const [permsDraft, setPermsDraft] = useState(() => {
-    return sanitizePerms(getUserEffectivePermissions('sarah.jenkins@rentlock.com'));
+    return sanitizePerms(getUserEffectivePermissions('manager@rentlock.com'));
   });
 
   const [isRbacModalOpen, setIsRbacModalOpen] = useState(false);
@@ -600,73 +608,88 @@ export default function SettingsPage() {
             {/* MODE 1: Specific User Overrides */}
             {rbacConfigMode === 'specific_user' && (
               <div className="space-y-6">
-                {/* User Selector Pills */}
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">
-                    Select Manager or Owner Account to Configure:
-                  </label>
-                  <div className="flex flex-wrap gap-2.5">
-                    {/* Managers */}
-                    {managersList.map((m) => {
-                      const isSelected = selectedUserKey.toLowerCase() === m.email.toLowerCase();
-                      const perms = getUserEffectivePermissions(m.email);
-                      return (
-                        <button
-                          key={m.email}
-                          type="button"
-                          onClick={() => handleSelectUser(m.email)}
-                          className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                            isSelected
-                              ? 'bg-indigo-50 border-indigo-400 text-indigo-900 ring-2 ring-indigo-500/20 shadow-sm'
-                              : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-                          }`}
-                        >
-                          <div className={`w-6 h-6 rounded-lg flex items-center justify-center font-bold text-[11px] ${
-                            isSelected ? 'bg-indigo-600 text-white' : 'bg-blue-100 text-blue-700'
-                          }`}>
-                            {m.name.charAt(0)}
-                          </div>
-                          <div className="text-left">
-                            <p className="font-bold leading-tight">{m.name}</p>
-                            <p className="text-[10px] text-gray-400 font-normal">Manager · {m.email}</p>
-                          </div>
-                          {perms.isCustomOverride && (
-                            <span className="w-2 h-2 rounded-full bg-indigo-600 ring-2 ring-white" title="Custom override active" />
-                          )}
-                        </button>
-                      );
-                    })}
+                {/* User Selector Pills - Grouped by Role */}
+                <div className="space-y-4">
+                  {/* Property Managers */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <Users className="w-3.5 h-3.5 text-indigo-600" />
+                      <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                        Property Managers ({managersList.length}):
+                      </label>
+                    </div>
+                    <div className="flex flex-wrap gap-2.5">
+                      {managersList.map((m) => {
+                        const isSelected = selectedUserKey.toLowerCase() === m.email.toLowerCase();
+                        const perms = getUserEffectivePermissions(m.email);
+                        return (
+                          <button
+                            key={m.email}
+                            type="button"
+                            onClick={() => handleSelectUser(m.email)}
+                            className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                              isSelected
+                                ? 'bg-indigo-50 border-indigo-400 text-indigo-900 ring-2 ring-indigo-500/20 shadow-sm'
+                                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                            }`}
+                          >
+                            <div className={`w-6 h-6 rounded-lg flex items-center justify-center font-bold text-[11px] ${
+                              isSelected ? 'bg-indigo-600 text-white' : 'bg-blue-100 text-blue-700'
+                            }`}>
+                              {m.name.charAt(0)}
+                            </div>
+                            <div className="text-left">
+                              <p className="font-bold leading-tight">{m.name}</p>
+                              <p className="text-[10px] text-gray-400 font-normal">Manager · {m.email}</p>
+                            </div>
+                            {perms.isCustomOverride && (
+                              <span className="w-2 h-2 rounded-full bg-indigo-600 ring-2 ring-white" title="Custom override active" />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
 
-                    {/* Owners */}
-                    {ownersList.map((o) => {
-                      const isSelected = selectedUserKey.toLowerCase() === o.email.toLowerCase();
-                      const perms = getUserEffectivePermissions(o.email);
-                      return (
-                        <button
-                          key={o.email}
-                          type="button"
-                          onClick={() => handleSelectUser(o.email)}
-                          className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                            isSelected
-                              ? 'bg-purple-50 border-purple-400 text-purple-900 ring-2 ring-purple-500/20 shadow-sm'
-                              : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-                          }`}
-                        >
-                          <div className={`w-6 h-6 rounded-lg flex items-center justify-center font-bold text-[11px] ${
-                            isSelected ? 'bg-purple-600 text-white' : 'bg-purple-100 text-purple-700'
-                          }`}>
-                            {o.name.charAt(0)}
-                          </div>
-                          <div className="text-left">
-                            <p className="font-bold leading-tight">{o.name}</p>
-                            <p className="text-[10px] text-gray-400 font-normal">Owner · {o.email}</p>
-                          </div>
-                          {perms.isCustomOverride && (
-                            <span className="w-2 h-2 rounded-full bg-purple-600 ring-2 ring-white" title="Custom override active" />
-                          )}
-                        </button>
-                      );
-                    })}
+                  {/* Property Owners */}
+                  <div className="space-y-2 pt-2 border-t border-gray-100">
+                    <div className="flex items-center gap-1.5">
+                      <Building2 className="w-3.5 h-3.5 text-purple-600" />
+                      <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                        Property Owners ({ownersList.length}):
+                      </label>
+                    </div>
+                    <div className="flex flex-wrap gap-2.5">
+                      {ownersList.map((o) => {
+                        const isSelected = selectedUserKey.toLowerCase() === o.email.toLowerCase();
+                        const perms = getUserEffectivePermissions(o.email);
+                        return (
+                          <button
+                            key={o.email}
+                            type="button"
+                            onClick={() => handleSelectUser(o.email)}
+                            className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                              isSelected
+                                ? 'bg-purple-50 border-purple-400 text-purple-900 ring-2 ring-purple-500/20 shadow-sm'
+                                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                            }`}
+                          >
+                            <div className={`w-6 h-6 rounded-lg flex items-center justify-center font-bold text-[11px] ${
+                              isSelected ? 'bg-purple-600 text-white' : 'bg-purple-100 text-purple-700'
+                            }`}>
+                              {o.name.charAt(0)}
+                            </div>
+                            <div className="text-left">
+                              <p className="font-bold leading-tight">{o.name}</p>
+                              <p className="text-[10px] text-gray-400 font-normal">Owner · {o.email}</p>
+                            </div>
+                            {perms.isCustomOverride && (
+                              <span className="w-2 h-2 rounded-full bg-purple-600 ring-2 ring-white" title="Custom override active" />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
 
