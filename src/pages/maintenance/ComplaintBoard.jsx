@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
-  Wrench, AlertTriangle, Clock, CheckCircle2, Plus, Calendar, ShieldCheck, DollarSign
+  Wrench, AlertTriangle, Clock, CheckCircle2, Plus, Calendar, ShieldCheck, DollarSign, Store
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import PageHeader from '../../components/shared/PageHeader';
@@ -15,25 +16,16 @@ import Drawer from '../../components/ui/Drawer';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
 import apiClient from '../../services/apiClient';
-import { mockComplaints, mockVendors } from '../../data/mockExtra';
-import { getVendors } from '../../data/mockOperations';
+import { mockComplaints } from '../../data/mockExtra';
+import { getVendors, saveVendors } from '../../data/mockOperations';
 import { getProperties } from '../../data/mockProperties';
 import { getAdminPortalState, updateAdminPortalState } from '../../data/adminPortalStore';
 import { MAINTENANCE_PIPELINE_STAGES } from '../../utils/constants';
 import { formatUsd, formatDate } from '../../utils/formatters';
 import { isDemoMode } from '../../data/appDataReset';
 
-const DEFAULT_VENDORS = [
-  'QuickFix Plumbing',
-  'Metro HVAC LLC',
-  'Empire Electric',
-  'Apex Locksmith',
-  'General Maintenance Staff',
-  'SafeGuard Security',
-  'CleanPro Services',
-];
-
 export default function ComplaintBoard() {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('pipeline');
   const [workOrders, setWorkOrders] = useState(() => {
     const saved = localStorage.getItem('custom_work_orders_us');
@@ -49,10 +41,18 @@ export default function ComplaintBoard() {
   const [isCreatingWO, setIsCreatingWO] = useState(false);
 
   const [propertiesList, setPropertiesList] = useState(() => getProperties().filter((p) => !p.archived));
-  const [availableVendors, setAvailableVendors] = useState(() => {
-    const fromMock = getVendors().map((v) => v.name).filter(Boolean);
-    return Array.from(new Set([...fromMock, ...DEFAULT_VENDORS]));
-  });
+  const [vendorsList, setVendorsList] = useState(() => getVendors());
+
+  const availableVendors = useMemo(() => {
+    return vendorsList.map((v) => (typeof v === 'string' ? v : v.name)).filter(Boolean);
+  }, [vendorsList]);
+
+  const vendorSelectOptions = useMemo(() => {
+    if (availableVendors.length === 0) {
+      return ['Unassigned', 'Internal Maintenance Staff'];
+    }
+    return ['Unassigned', ...availableVendors];
+  }, [availableVendors]);
 
   const fetchWorkOrders = async () => {
     let localWOs = [];
@@ -99,13 +99,24 @@ export default function ComplaintBoard() {
       }
     }).catch(() => {});
 
-    apiClient.get('/operations/vendors').then((res) => {
-      const items = res?.items || res;
-      if (Array.isArray(items) && items.length > 0) {
-        const names = items.map((v) => v.name).filter(Boolean);
-        setAvailableVendors((prev) => Array.from(new Set([...names, ...prev])));
-      }
-    }).catch(() => {});
+    const loadVendors = () => {
+      apiClient.get('/operations/vendors').then((res) => {
+        const items = res?.items || res;
+        if (Array.isArray(items)) {
+          setVendorsList(items);
+          saveVendors(items);
+        }
+      }).catch(() => {});
+    };
+
+    loadVendors();
+    window.addEventListener('rentlock_vendors_changed', loadVendors);
+
+    return () => {
+      window.removeEventListener('rentlock_work_orders_changed', handleWOChange);
+      window.removeEventListener('storage', handleWOChange);
+      window.removeEventListener('rentlock_vendors_changed', loadVendors);
+    };
   }, []);
 
   const managerCap = portalState.settings?.managerApprovalCap || 1000;
@@ -117,7 +128,7 @@ export default function ComplaintBoard() {
     propertyName: propertiesList[0]?.name || 'Sunrise Residency',
     unit: 'A-204',
     tenant: 'Rebecca Miller',
-    assignedTo: 'QuickFix Plumbing',
+    assignedTo: 'Unassigned',
     estimatedCost: '450',
     scheduledWindow: '11/14/2026 · 10:00 AM',
   });
@@ -132,7 +143,7 @@ export default function ComplaintBoard() {
   const [newPM, setNewPM] = useState({
     title: '',
     propertyName: propertiesList[0]?.name || 'Sunrise Residency',
-    assignee: 'Metro HVAC LLC',
+    assignee: 'Unassigned',
     scheduleMode: 'Fixed Calendar Dates',
     frequency: 'Quarterly',
     nextDueDate: '2026-12-15',
@@ -356,7 +367,7 @@ export default function ComplaintBoard() {
             { id: 'pipeline', label: 'Tenant Requests Pipeline' },
             { id: 'orders', label: `Unified Work Orders (${workOrders.length})` },
             { id: 'preventive', label: `Preventive Schedules (${(portalState.preventiveSchedules || []).length})` },
-            { id: 'vendors', label: `Approved Vendors (${availableVendors.length})` },
+            { id: 'vendors', label: `Approved Vendors (${vendorsList.length})` },
           ]}
           activeTab={activeTab}
           onChange={setActiveTab}
@@ -453,17 +464,52 @@ export default function ComplaintBoard() {
         )}
 
         {activeTab === 'vendors' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {availableVendors.map((vendorName, idx) => (
-              <div key={idx} className="p-4 rounded-2xl border border-gray-200 space-y-1.5 text-xs bg-white shadow-xs">
-                <div className="flex justify-between items-center">
-                  <span className="font-bold text-sm text-gray-900">{vendorName}</span>
-                  <Badge status="Active" />
+          <div>
+            {vendorsList.length === 0 ? (
+              <div className="text-center py-16 px-4 rounded-2xl border border-dashed border-gray-200 bg-gray-50/50">
+                <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
+                  <Store className="w-6 h-6" />
                 </div>
-                <p className="text-gray-500">Service Vendor · Active Partner</p>
-                <p className="text-gray-600">W-9: <strong>Verified</strong> · COI: <strong>Valid</strong></p>
+                <h4 className="text-sm font-bold text-gray-900 mb-1">No Approved Vendors Available</h4>
+                <p className="text-xs text-gray-500 max-w-sm mx-auto mb-4">
+                  There are no active vendors in your database. Add contractors and service providers in Vendors &amp; Payees to assign them to maintenance work orders.
+                </p>
+                <Button size="sm" onClick={() => navigate('/vendors')}>
+                  <Plus className="w-4 h-4 mr-1.5" />
+                  Add Vendor in Vendors &amp; Payees
+                </Button>
               </div>
-            ))}
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {vendorsList.map((v, idx) => {
+                  const vName = v.name || 'Contractor';
+                  const vCat = v.category || 'General Maintenance';
+                  const isCOI = v.coiVerified || v.coiStatus === 'Valid';
+                  const isW9 = v.w9OnFile !== false;
+                  const isActive = v.isActive !== false && v.status !== 'Inactive';
+                  return (
+                    <div key={v.id || idx} className="p-4 rounded-2xl border border-gray-200 space-y-2 text-xs bg-white shadow-xs hover:border-gray-300 transition-all">
+                      <div className="flex justify-between items-center">
+                        <span className="font-bold text-sm text-gray-900">{vName}</span>
+                        <Badge status={isActive ? 'Active' : 'Inactive'} />
+                      </div>
+                      <p className="text-gray-500 font-medium">{vCat} · Service Partner</p>
+                      {v.phone && (
+                        <p className="text-gray-400 text-[11px] flex items-center gap-1">
+                          <span>{v.phone}</span>
+                          {v.email && <span>· {v.email}</span>}
+                        </p>
+                      )}
+                      <div className="pt-2 border-t border-gray-100 flex items-center gap-3 text-gray-600 text-[11px]">
+                        <span>W-9: <strong className={isW9 ? 'text-emerald-600' : 'text-amber-600'}>{isW9 ? 'Verified' : 'Pending'}</strong></span>
+                        <span>·</span>
+                        <span>COI: <strong className={isCOI ? 'text-emerald-600' : 'text-amber-600'}>{isCOI ? 'Valid' : 'Pending'}</strong></span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </Card>
@@ -570,7 +616,7 @@ export default function ComplaintBoard() {
             <Select
               label="Assign Vendor"
               value={newWO.assignedTo}
-              options={availableVendors}
+              options={vendorSelectOptions}
               direction="up"
               onChange={(e) => setNewWO({ ...newWO, assignedTo: e.target.value })}
             />
@@ -605,7 +651,7 @@ export default function ComplaintBoard() {
             <Select
               label="Vendor / Assignee"
               value={newPM.assignee}
-              options={availableVendors}
+              options={vendorSelectOptions}
               onChange={(e) => setNewPM({ ...newPM, assignee: e.target.value })}
             />
             <Select label="Recurrence Mode" value={newPM.scheduleMode} options={['Fixed Calendar Dates', 'After Completion']} onChange={(e) => setNewPM({ ...newPM, scheduleMode: e.target.value })} />

@@ -80,6 +80,9 @@ export const getVendors = () => {
 export const saveVendors = (vendors) => {
   localStorage.setItem('pm_vendors', JSON.stringify(vendors));
   localStorage.setItem('custom_vendors', JSON.stringify(vendors));
+  try {
+    window.dispatchEvent(new Event('rentlock_vendors_changed'));
+  } catch {}
 };
 
 export const addVendor = async (vendor) => {
@@ -241,7 +244,7 @@ const INITIAL_VISITORS = [];
 
 export const getVisitors = () => {
   try {
-    const raw = localStorage.getItem('pm_visitors');
+    const raw = localStorage.getItem('custom_visitors') || localStorage.getItem('pm_visitors');
     if (raw) return JSON.parse(raw);
   } catch (err) {
     console.warn('Could not read visitors cache', err);
@@ -252,21 +255,29 @@ export const getVisitors = () => {
 
 export const saveVisitors = (visitors) => {
   localStorage.setItem('pm_visitors', JSON.stringify(visitors));
+  localStorage.setItem('custom_visitors', JSON.stringify(visitors));
 };
 
-export const logVisitor = (visitorData) => {
-  apiClient.post('/operations/visitors', visitorData).catch(() => {});
+export const logVisitor = async (visitorData) => {
+  let created = null;
+  try {
+    created = await apiClient.post('/operations/visitors', visitorData);
+  } catch (err) {
+    console.warn('[API] Log visitor failed:', err.message);
+  }
   const current = getVisitors();
-  const nextId = `VIS-${Date.now().toString().slice(-4)}`;
-  const passId = `V-PASS-${Math.floor(1000 + Math.random() * 9000)}`;
+  const nextId = created?.id || `VIS-${Date.now().toString().slice(-4)}`;
+  const passId = created?.passCode || created?.passId || `VPASS-${Math.floor(1000 + Math.random() * 9000)}`;
   const newVisitor = {
+    ...created,
+    ...visitorData,
     id: nextId,
     passId,
+    passCode: passId,
     checkInTime: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
     checkOutTime: null,
-    status: 'On-Site · Active Pass',
-    entryMethod: 'Front Desk / Security Check-in',
-    ...visitorData,
+    status: 'On-Site Now',
+    entryMethod: visitorData.entryMethod || 'Front Desk / Security Check-in',
   };
   const updated = [newVisitor, ...current];
   saveVisitors(updated);
