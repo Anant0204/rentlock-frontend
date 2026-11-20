@@ -30,8 +30,17 @@ export default function OwnerProperties() {
   useEffect(() => {
     apiClient.get('/properties?limit=100').then((res) => {
       const items = res?.items || res;
-      if (Array.isArray(items)) setProperties(items);
-    }).catch(() => {});
+      if (Array.isArray(items)) {
+        // Merge backend properties with local custom_properties so newly added local properties are not lost
+        const localProps = getProperties().filter((p) => !p.archived);
+        const map = new Map();
+        localProps.forEach((p) => map.set((p.name || '').toLowerCase(), p));
+        items.forEach((p) => map.set((p.name || '').toLowerCase(), { ...map.get((p.name || '').toLowerCase()), ...p }));
+        setProperties(Array.from(map.values()));
+      }
+    }).catch(() => {
+      setProperties(getProperties().filter((p) => !p.archived));
+    });
   }, []);
 
   const effectivePerms = useMemo(() => {
@@ -49,33 +58,62 @@ export default function OwnerProperties() {
     setProperties(getProperties().filter((p) => !p.archived));
   };
 
-  // Determine which properties belong to this owner
-  const ownerName = user?.name || 'Claire Bennett';
-  const ownerEmail = user?.email?.toLowerCase();
+  // Determine which properties belong strictly to this owner
+  const ownerName = (user?.name || '').trim().toLowerCase();
+  const ownerEmail = (user?.email || '').trim().toLowerCase();
 
   const ownedProperties = useMemo(() => {
     return properties.filter((p) => {
-      // Check explicit owner list or string
-      if (Array.isArray(p.owners) && p.owners.some((o) => o.name?.toLowerCase() === ownerName.toLowerCase())) {
+      // 1. Direct owner match by ID
+      if (p.ownerId && user?.id && Number(p.ownerId) === Number(user.id)) {
         return true;
       }
-      if (typeof p.owner === 'string' && p.owner.toLowerCase().includes(ownerName.toLowerCase())) {
+      if (p.ownerDetails?.id && user?.id && Number(p.ownerDetails.id) === Number(user.id)) {
         return true;
       }
-      // If user has ownerData with assigned properties
-      if (user?.ownerData?.properties && Array.isArray(user.ownerData.properties)) {
-        if (user.ownerData.properties.some((pn) => pn.toLowerCase() === p.name.toLowerCase())) {
+
+      // 2. Direct owner match by Name
+      if (ownerName) {
+        // Check string representation: "simba", "simba (100%)", etc.
+        const propOwnerStr = (typeof p.owner === 'string' ? p.owner : (p.owner?.name || '')).toLowerCase();
+        if (propOwnerStr && (propOwnerStr === ownerName || propOwnerStr.includes(ownerName))) {
+          return true;
+        }
+
+        // Check owners array: [{ name: 'simba', ... }]
+        if (Array.isArray(p.owners) && p.owners.some((o) => (o.name || '').toLowerCase().includes(ownerName))) {
+          return true;
+        }
+
+        // Check accessNotes or tags
+        if (p.accessNotes && p.accessNotes.toLowerCase().includes(`[owner:${ownerName}`)) {
           return true;
         }
       }
-      // If owner is Claire Bennett or demo, show default portfolio
-      if (ownerName.toLowerCase().includes('claire') || ownerEmail?.includes('claire') || ownerEmail?.includes('owner@')) {
-        return ['Sunrise Residency', 'Green Valley Villas', 'Metro Business Park'].includes(p.name);
+
+      // 3. Match by owner email
+      if (ownerEmail) {
+        const propEmail = (p.ownerDetails?.email || (typeof p.owner === 'object' ? p.owner?.email : '') || '').toLowerCase();
+        if (propEmail && propEmail === ownerEmail) {
+          return true;
+        }
       }
-      // Fallback: if newly created owner has assigned property matching
-      if (user?.ownerData?.assignedProperty && p.name.toLowerCase() === user.ownerData.assignedProperty.toLowerCase()) {
+
+      // 4. Custom ownerData property list from login/session
+      if (user?.ownerData?.properties && Array.isArray(user.ownerData.properties)) {
+        if (user.ownerData.properties.some((pn) => (pn || '').toLowerCase() === (p.name || '').toLowerCase())) {
+          return true;
+        }
+      }
+      if (user?.ownerData?.assignedProperty && (p.name || '').toLowerCase() === user.ownerData.assignedProperty.toLowerCase()) {
         return true;
       }
+
+      // 5. Special case: if owner is Claire Bennett, match default demo properties only for Claire
+      if (ownerName === 'claire bennett' || ownerEmail === 'owner@rentlock.com') {
+        return ['Sunrise Residency', 'Green Valley Villas', 'Metro Business Park'].includes(p.name);
+      }
+
       return false;
     });
   }, [properties, ownerName, ownerEmail, user]);

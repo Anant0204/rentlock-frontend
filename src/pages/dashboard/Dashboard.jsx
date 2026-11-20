@@ -94,7 +94,7 @@ export default function Dashboard() {
     // 2. Fetch live properties
     apiClient.get('/properties?limit=100').then((res) => {
       const items = res?.items || res;
-      if (Array.isArray(items) && items.length > 0) {
+      if (Array.isArray(items)) {
         setLiveProperties(items.filter((p) => !p.archived));
       }
     }).catch(() => {});
@@ -102,7 +102,7 @@ export default function Dashboard() {
     // 3. Fetch live units
     apiClient.get('/units?limit=100').then((res) => {
       const items = res?.items || res;
-      if (Array.isArray(items) && items.length > 0) {
+      if (Array.isArray(items)) {
         setLiveUnits(items.filter((u) => !u.archived));
         localStorage.setItem('custom_units', JSON.stringify(items));
       }
@@ -179,37 +179,50 @@ export default function Dashboard() {
   const metrics = useMemo(() => {
     const totalUnits = scopedUnits.length > 0
       ? scopedUnits.length
-      : (backendSummary?.totalUnits || properties.reduce((s, p) => s + (p.totalUnits || 0), 0) || 4);
+      : (backendSummary?.totalUnits !== undefined
+          ? Number(backendSummary.totalUnits)
+          : properties.reduce((s, p) => s + (p.totalUnits || 0), 0));
 
     const occupiedUnits = scopedUnits.length > 0
       ? scopedUnits.filter((u) => u.status === 'Occupied').length
-      : (backendSummary?.occupiedUnits ?? 1);
+      : (backendSummary?.occupiedUnits !== undefined
+          ? Number(backendSummary.occupiedUnits)
+          : 0);
 
     const pct = totalUnits > 0
       ? ((occupiedUnits / totalUnits) * 100).toFixed(1)
-      : (backendSummary?.occupancyRate ? Number(backendSummary.occupancyRate).toFixed(1) : '25.0');
+      : (backendSummary?.occupancyRate !== undefined ? Number(backendSummary.occupancyRate).toFixed(1) : '0.0');
 
     // Live Rent Billed & Collected
     const billedFromInvoices = liveInvoices.reduce((s, i) => s + (Number(i.amount) || Number(i.total) || 0), 0);
     const collectedFromInvoices = liveInvoices.reduce((s, i) => s + (Number(i.paidAmount) || Number(i.paid) || 0), 0);
     const activeMonthlyRent = scopedUnits
       .filter((u) => u.status === 'Occupied')
-      .reduce((s, u) => s + (Number(u.rent || u.rentAmount || 0)), 0) || 1000;
+      .reduce((s, u) => s + (Number(u.rent || u.rentAmount || 0)), 0);
 
-    let billed = billedFromInvoices > 0 ? billedFromInvoices : (backendSummary?.totalBilled || activeMonthlyRent);
-    let collected = collectedFromInvoices > 0 ? collectedFromInvoices : (backendSummary?.totalCollected || activeMonthlyRent);
+    let billed = billedFromInvoices > 0
+      ? billedFromInvoices
+      : (backendSummary?.totalBilled !== undefined ? Number(backendSummary.totalBilled) : activeMonthlyRent);
+    let collected = collectedFromInvoices > 0
+      ? collectedFromInvoices
+      : (backendSummary?.totalCollected !== undefined ? Number(backendSummary.totalCollected) : activeMonthlyRent);
 
-    const collectedPct = billed > 0 ? `${((collected / billed) * 100).toFixed(1)}%` : '100.0%';
+    if (occupiedUnits === 0 && billedFromInvoices === 0 && (!backendSummary || Number(backendSummary?.totalBilled || 0) === 0)) {
+      billed = 0;
+      collected = 0;
+    }
+
+    const collectedPct = billed > 0 ? `${((collected / billed) * 100).toFixed(1)}%` : '0.0%';
 
     const overdueRent = liveInvoices
       .filter((i) => i.status === 'Overdue')
-      .reduce((s, i) => s + (Number(i.balance) || Number(i.amount) || 0), 0) || (backendSummary?.totalReceivables || 0);
+      .reduce((s, i) => s + (Number(i.balance) || Number(i.amount) || 0), 0) || (backendSummary?.totalReceivables ? Number(backendSummary.totalReceivables) : 0);
 
     const vacancyLoss = scopedUnits
       .filter((u) => u.status !== 'Occupied')
       .reduce((s, u) => s + (Number(u.rent || u.rentAmount || 0)), 0);
 
-    const totalExpenses = liveExpenses.reduce((s, e) => s + (Number(e.amount) || 0), 0) || (backendSummary?.totalExpenses || 0);
+    const totalExpenses = liveExpenses.reduce((s, e) => s + (Number(e.amount) || 0), 0) || (backendSummary?.totalExpenses ? Number(backendSummary.totalExpenses) : 0);
     const noiYtd = collected - totalExpenses;
 
     const activeTickets = liveWorkOrders.filter((w) => !['resolved', 'closed'].includes((w.status || '').toLowerCase())).length || (backendSummary?.activeWorkOrders ?? 0);
@@ -259,8 +272,8 @@ export default function Dashboard() {
     if (revenueTrend && revenueTrend.length > 0 && revenueTrend.some((r) => r.revenue > 0 || r.expenses > 0)) {
       return revenueTrend;
     }
-    const baseRev = scopedUnits.filter((u) => u.status === 'Occupied').reduce((s, u) => s + (Number(u.rent || u.rentAmount || 0)), 0) || 1000;
-    const baseExp = liveExpenses.reduce((s, e) => s + (Number(e.amount) || 0), 0) || 200;
+    const baseRev = scopedUnits.filter((u) => u.status === 'Occupied').reduce((s, u) => s + (Number(u.rent || u.rentAmount || 0)), 0);
+    const baseExp = liveExpenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
     const months = [
       { month: 'Jun 2026', factor: 0.95 },
       { month: 'Jul 2026', factor: 0.98 },
@@ -269,6 +282,9 @@ export default function Dashboard() {
       { month: 'Oct 2026', factor: 1.02 },
       { month: 'Nov 2026', factor: 1.0 },
     ];
+    if (baseRev === 0 && baseExp === 0) {
+      return months.map((m) => ({ month: m.month, revenue: 0, expenses: 0 }));
+    }
     return months.map((m) => ({
       month: m.month,
       revenue: Math.round(baseRev * m.factor),
@@ -281,7 +297,10 @@ export default function Dashboard() {
     if (expenseBreakdown && expenseBreakdown.length > 0 && expenseBreakdown.some((e) => e.amount > 0)) {
       return expenseBreakdown;
     }
-    const totalExp = metrics.expenseTotal > 0 ? metrics.expenseTotal : 750;
+    const totalExp = metrics.expenseTotal > 0 ? metrics.expenseTotal : 0;
+    if (totalExp === 0) {
+      return [];
+    }
     return [
       { category: 'Repairs & Maintenance', amount: Math.round(totalExp * 0.4) },
       { category: 'Utilities & Water', amount: Math.round(totalExp * 0.25) },
@@ -304,14 +323,14 @@ export default function Dashboard() {
       }));
     }
     const occupiedUnit = scopedUnits.find((u) => u.status === 'Occupied');
-    if (occupiedUnit) {
+    if (occupiedUnit && Number(occupiedUnit.rent || occupiedUnit.rentAmount || 0) > 0) {
       return [
         {
           id: 'PAY-001',
-          tenantName: occupiedUnit.tenantName || occupiedUnit.tenant?.name || occupiedUnit.tenant || 'happy tenant',
-          unitNumber: `Unit ${occupiedUnit.unitNumber || '2A'}`,
-          propertyName: occupiedUnit.propertyName || 'HAPPY',
-          paid: Number(occupiedUnit.rent || occupiedUnit.rentAmount || 1000),
+          tenantName: occupiedUnit.tenantName || occupiedUnit.tenant?.name || occupiedUnit.tenant || 'Resident',
+          unitNumber: `Unit ${occupiedUnit.unitNumber || '1'}`,
+          propertyName: occupiedUnit.propertyName || 'Property',
+          paid: Number(occupiedUnit.rent || occupiedUnit.rentAmount || 0),
           status: 'Paid',
         },
       ];

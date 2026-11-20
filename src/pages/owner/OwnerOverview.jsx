@@ -34,27 +34,41 @@ export default function OwnerOverview() {
         setPortalState((prev) => {
           const liveItems = ov.properties;
           let updatedProps = prev.properties;
-          if (Array.isArray(liveItems)) {
+          if (Array.isArray(liveItems) && liveItems.length > 0) {
             updatedProps = liveItems.map((p) => ({
               id: String(p.id),
               name: p.name,
+              address: p.address || '123 Main St',
+              type: p.type || 'Residential',
               units: p.totalUnits || p.unitsCount || 0,
               occupied: p.occupiedUnits || 0,
-              rent: Number(p.monthlyRevenue) || 0,
+              vacant: (p.totalUnits || p.unitsCount || 0) - (p.occupiedUnits || 0),
+              openingCash: 0,
+              rentReceived: Number(p.monthlyRevenue || p.rent) || 0,
+              rent: Number(p.monthlyRevenue || p.rent) || 0,
               expenses: 0,
-              net: Number(p.monthlyRevenue) || 0,
-              disbursement: Math.round((Number(p.monthlyRevenue) || 0) * 0.9),
+              net: Number(p.monthlyRevenue || p.rent) || 0,
+              disbursement: Math.round((Number(p.monthlyRevenue || p.rent) || 0) * 0.9),
               cashInBank: 0,
               reserve: 0,
             }));
           }
+
+          // Preserve owner's real entityName and prevent Claire Bennett default from overwriting custom owner
+          const isClaire = (prev.ownerProfile?.name || '').toLowerCase().includes('claire');
+          const cleanPortfolioName = ov?.portfolioName && (!ov.portfolioName.toLowerCase().includes('claire') || isClaire)
+            ? ov.portfolioName
+            : prev.ownerProfile.entityName;
+
           return {
             ...prev,
             properties: updatedProps,
-            selectedPropertyId: updatedProps[0]?.id || 'all',
+            selectedPropertyId: updatedProps.some((p) => p.id === prev.selectedPropertyId)
+              ? prev.selectedPropertyId
+              : (updatedProps[0]?.id || 'all'),
             ownerProfile: {
               ...prev.ownerProfile,
-              entityName: ov?.portfolioName || prev.ownerProfile.entityName,
+              entityName: cleanPortfolioName,
             },
           };
         });
