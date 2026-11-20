@@ -318,17 +318,11 @@ export default function ManagerList() {
     };
 
     const headers = [
-      'Manager ID',
       'Manager Name',
-      'Employment Type',
-      'Performance Rating',
-      'Email Address',
       'Phone Number',
-      'Shift Timing',
       'Assigned Properties',
-      'Approval Spending Cap',
-      'Portal Login Status',
       'Account Status',
+      'Email Address',
     ].join(',');
 
     const rows = (filteredManagers || []).map((m) => {
@@ -341,17 +335,11 @@ export default function ManagerList() {
         : (m.status || 'Active');
 
       return [
-        escapeCsv(m.id || '—'),
         escapeCsv(m.name || '—'),
-        escapeCsv(m.employmentType || 'Full-Time'),
-        escapeCsv(`${m.rating || '5.0'} ★`),
-        escapeCsv(m.email || '—'),
         escapeCsv(m.phone || '—'),
-        escapeCsv(m.shift || 'Day (8 AM–5 PM)'),
         escapeCsv(assigned),
-        escapeCsv(formatUsd(m.spendingCap || 1000)),
-        escapeCsv('Password Active'),
         escapeCsv(status),
+        escapeCsv(m.email || '—'),
       ].join(',');
     }).join('\r\n');
 
@@ -527,10 +515,8 @@ export default function ManagerList() {
                             >
                               {mgr.name}
                             </p>
-                            <p className="text-[11px] text-gray-400 flex items-center gap-1.5 mt-0.5">
+                            <p className="text-[11px] text-gray-400 mt-0.5">
                               <span>{mgr.employmentType || 'Full-Time'}</span>
-                              <span>·</span>
-                              <span className="text-amber-600 font-medium">{mgr.rating || '5.0'} ★</span>
                             </p>
                           </div>
                         </div>

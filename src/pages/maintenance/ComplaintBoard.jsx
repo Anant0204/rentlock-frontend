@@ -64,19 +64,8 @@ export default function ComplaintBoard() {
       const res = await apiClient.get('/maintenance?limit=100');
       const items = res?.items || res;
       if (Array.isArray(items)) {
-        const liveIds = new Set(items.map((i) => String(i.ticketNumber || i.id)));
-        const combined = [...items, ...localWOs.filter((l) => !liveIds.has(String(l.ticketNumber || l.id)))];
-        const seen = new Set();
-        const deduped = combined.filter((w) => {
-          const key = ((w.description || w.title || '').trim()).toLowerCase();
-          if (key.length > 5) {
-            if (seen.has(key)) return false;
-            seen.add(key);
-          }
-          return true;
-        });
-        setWorkOrders(deduped);
-        localStorage.setItem('custom_work_orders_us', JSON.stringify(deduped));
+        setWorkOrders(items);
+        localStorage.setItem('custom_work_orders_us', JSON.stringify(items));
       } else if (localWOs.length > 0) {
         setWorkOrders(localWOs);
       }
