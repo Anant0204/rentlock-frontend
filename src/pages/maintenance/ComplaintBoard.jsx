@@ -55,20 +55,33 @@ export default function ComplaintBoard() {
   });
 
   const fetchWorkOrders = async () => {
+    let localWOs = [];
+    try {
+      localWOs = JSON.parse(localStorage.getItem('custom_work_orders_us') || '[]');
+    } catch {}
+
     try {
       const res = await apiClient.get('/maintenance?limit=100');
       const items = res?.items || res;
       if (Array.isArray(items)) {
-        setWorkOrders(items);
-        localStorage.setItem('custom_work_orders_us', JSON.stringify(items));
+        const liveIds = new Set(items.map((i) => String(i.ticketNumber || i.id)));
+        const combined = [...items, ...localWOs.filter((l) => !liveIds.has(String(l.ticketNumber || l.id)))];
+        setWorkOrders(combined);
+        localStorage.setItem('custom_work_orders_us', JSON.stringify(combined));
+      } else if (localWOs.length > 0) {
+        setWorkOrders(localWOs);
       }
     } catch {
-      // Keep existing list on network fallback
+      if (localWOs.length > 0) setWorkOrders(localWOs);
     }
   };
 
   useEffect(() => {
     fetchWorkOrders();
+
+    const handleWOChange = () => fetchWorkOrders();
+    window.addEventListener('rentlock_work_orders_changed', handleWOChange);
+    window.addEventListener('storage', handleWOChange);
 
     apiClient.get('/properties?limit=100').then((res) => {
       const items = res?.items || res;
@@ -460,7 +473,25 @@ export default function ComplaintBoard() {
                 <Badge status={selectedWO.status} />
               </div>
               <p className="font-bold text-base text-gray-900 pt-1">{selectedWO.title}</p>
-              <p className="text-gray-600">{selectedWO.propertyName} · Unit {selectedWO.unit} · Resident: {selectedWO.tenant}</p>
+              <p className="text-gray-600">
+                {selectedWO.propertyName} · Unit {selectedWO.unit || selectedWO.unitNumber} · Resident: {selectedWO.tenant || selectedWO.tenantName}
+              </p>
+              {selectedWO.description && (
+                <div className="pt-2 border-t border-gray-100">
+                  <p className="font-bold text-gray-700">Problem Description:</p>
+                  <p className="text-gray-800 whitespace-pre-wrap mt-0.5">{selectedWO.description}</p>
+                </div>
+              )}
+              {Array.isArray(selectedWO.photos) && selectedWO.photos.length > 0 && (
+                <div className="pt-2">
+                  <p className="font-bold text-gray-700 mb-1.5">Attached Photos:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedWO.photos.map((p, idx) => (
+                      <img key={idx} src={p.url || p} alt="Proof" className="w-16 h-16 object-cover rounded-xl border border-gray-200" />
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3 pt-3 border-t border-gray-100">
                 <div><p className="text-gray-400">Assigned Vendor/Tech</p><p className="font-bold text-gray-900">{selectedWO.assignedTo}</p></div>
                 <div><p className="text-gray-400">Estimated Cost</p><p className="font-black text-indigo-700 text-sm">{formatUsd(selectedWO.estimatedCost || 0)}</p></div>

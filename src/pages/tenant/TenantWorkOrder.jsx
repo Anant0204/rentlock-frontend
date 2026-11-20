@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../../services/apiClient';
 import { Plus, X, AlertTriangle, Wrench, MessageSquare, Camera } from 'lucide-react';
@@ -7,14 +7,10 @@ import PageHeader from '../../components/shared/PageHeader';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
-import Select from '../../components/ui/Select';
 import {
   getTenantPortalState,
   createTenantWorkOrder,
   readFilesAsDataUrls,
-  REPAIR_CATEGORIES,
-  ACCESS_TIME_OPTIONS,
-  getIssueLocationOptions,
 } from '../../data/tenantPortalData';
 
 export default function TenantWorkOrder() {
@@ -22,13 +18,9 @@ export default function TenantWorkOrder() {
   const fileInputRef = useRef(null);
 
   const [portalState, setPortalState] = useState(() => getTenantPortalState());
-  const [unit, setUnit] = useState(portalState?.household?.unitLabel || 'Assigned Unit');
-  const [category, setCategory] = useState('Plumbing');
   const [description, setDescription] = useState('');
   const [photos, setPhotos] = useState([]);
   const [urgency, setUrgency] = useState('Normal');
-  const [bestTimeToEnter, setBestTimeToEnter] = useState('');
-  const [allowEntryWhenAway, setAllowEntryWhenAway] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -36,7 +28,6 @@ export default function TenantWorkOrder() {
     apiClient.get('/portal/tenant/balance').then((liveBal) => {
       if (liveBal?.tenant) {
         const liveUnit = `${liveBal.tenant.propertyName} · Unit ${liveBal.tenant.unitNumber}`;
-        setUnit((prev) => (prev === 'Assigned Unit' || prev.includes('A-204') ? liveUnit : prev));
         setPortalState((prev) => ({
           ...prev,
           household: {
@@ -50,28 +41,39 @@ export default function TenantWorkOrder() {
     }).catch(() => {});
 
     // 2. Load tickets
-    apiClient.get('/maintenance?limit=100').then((res) => {
-      const liveTickets = Array.isArray(res) ? res : res?.items;
-      if (Array.isArray(liveTickets) && liveTickets.length > 0) {
-        setPortalState((prev) => ({
-          ...prev,
-          workOrders: liveTickets.map((t) => ({
-            id: String(t.ticketNumber || t.id),
-            title: t.title || t.issue,
-            category: t.category || 'General',
-            status: t.status === 'In_Progress' ? 'In progress' : 'Open',
-            loggedAt: t.createdAt ? t.createdAt.slice(0, 10) : '2026-11-14',
-            notes: t.description || '',
-            photos: [],
-          })),
-        }));
-      }
-    }).catch(() => {});
-  }, []);
+    const loadTickets = () => {
+      apiClient.get('/maintenance?limit=100').then((res) => {
+        const liveTickets = Array.isArray(res) ? res : res?.items;
+        if (Array.isArray(liveTickets) && liveTickets.length > 0) {
+          setPortalState((prev) => {
+            const existingIds = new Set((prev.workOrders || []).map((w) => w.id));
+            const mapped = liveTickets.map((t) => ({
+              id: String(t.ticketNumber || t.id),
+              title: t.title || t.issue || 'Repair Request',
+              category: t.category || 'General',
+              status: t.status === 'In_Progress' ? 'In progress' : t.status === 'Closed' ? 'Completed' : 'Open',
+              urgency: t.priority === 'Emergency' || t.priority === 'High' ? 'Urgent' : 'Normal',
+              loggedAt: t.createdAt ? t.createdAt.slice(0, 10) : '2026-11-20',
+              description: t.description || '',
+              notes: t.description || '',
+              photos: [],
+            }));
+            const newOnly = mapped.filter((w) => !existingIds.has(w.id));
+            return {
+              ...prev,
+              workOrders: [...newOnly, ...(prev.workOrders || [])],
+            };
+          });
+        }
+      }).catch(() => {});
+    };
 
-  const issueLocations = useMemo(() => {
-    return getIssueLocationOptions(portalState);
-  }, [portalState]);
+    loadTickets();
+    window.addEventListener('rentlock_work_orders_changed', loadTickets);
+    return () => {
+      window.removeEventListener('rentlock_work_orders_changed', loadTickets);
+    };
+  }, []);
 
   const handlePhotoChange = async (e) => {
     const loaded = await readFilesAsDataUrls(e.target.files, 4 - photos.length);
@@ -94,21 +96,15 @@ export default function TenantWorkOrder() {
     setSubmitting(true);
     try {
       const result = createTenantWorkOrder({
-        unit,
-        category,
         description,
         urgency,
-        bestTimeToEnter,
-        allowEntryWhenAway,
         photos,
       });
       setPortalState(result.state);
       setDescription('');
       setPhotos([]);
       setUrgency('Normal');
-      setBestTimeToEnter('');
-      setAllowEntryWhenAway(true);
-      toast.success(`${result.workOrder.id} submitted. Manager notified.`);
+      toast.success(`${result.workOrder.id} submitted. Manager and Admin notified.`);
     } catch (err) {
       toast.error(err.message || 'Could not submit work order.');
     } finally {
@@ -120,45 +116,12 @@ export default function TenantWorkOrder() {
     <div className="space-y-6 pb-8">
       <PageHeader
         title="Request a repair"
-        subtitle="Tell us what is wrong. Your property manager will follow up here."
+        subtitle="Tell us what is wrong. Your property manager and admin will follow up here."
       />
 
-      <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Card: Issue details */}
-        <Card padding="p-6" className="lg:col-span-7 space-y-5">
-          <Select
-            label="WHERE IS THE ISSUE?"
-            options={issueLocations}
-            value={unit}
-            onChange={(e) => setUnit(e.target.value)}
-            placeholder="Select unit area"
-          />
-
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-2">
-              WHAT NEEDS ATTENTION?
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {REPAIR_CATEGORIES.map((cat) => {
-                const selected = category === cat;
-                return (
-                  <button
-                    key={cat}
-                    type="button"
-                    onClick={() => setCategory(cat)}
-                    className={`px-4 py-2 rounded-xl text-sm font-medium border transition-all cursor-pointer ${
-                      selected
-                        ? 'bg-indigo-50 border-indigo-400 text-indigo-700 font-semibold shadow-sm'
-                        : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    {cat}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
+      <form onSubmit={handleSubmit} className="max-w-3xl space-y-6">
+        <Card padding="p-6" className="space-y-5">
+          {/* Describe the problem */}
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-2">
               DESCRIBE THE PROBLEM
@@ -172,7 +135,8 @@ export default function TenantWorkOrder() {
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1 items-start">
+          {/* Photos and Urgency Row */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 pt-1 items-start">
             <div>
               <label className="block text-xs font-bold text-gray-700 mb-2">
                 Add photos (optional)
@@ -227,7 +191,7 @@ export default function TenantWorkOrder() {
                       key={level}
                       type="button"
                       onClick={() => setUrgency(level)}
-                      className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                      className={`flex-1 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
                         selected
                           ? level === 'Urgent'
                             ? 'bg-rose-50 border-rose-300 text-rose-700'
@@ -242,53 +206,8 @@ export default function TenantWorkOrder() {
               </div>
             </div>
           </div>
-        </Card>
 
-        {/* Right Card: Scheduling & Submit */}
-        <Card padding="p-6" className="lg:col-span-5 space-y-5">
-          <div>
-            <h2 className="text-sm font-bold uppercase tracking-wider text-gray-900">
-              HELP US SCHEDULE
-            </h2>
-            <p className="text-xs text-gray-500 mt-0.5">Access and timing</p>
-          </div>
-
-          <Select
-            label="Best time to enter"
-            placeholder="Select a time"
-            options={ACCESS_TIME_OPTIONS}
-            value={bestTimeToEnter}
-            onChange={(e) => setBestTimeToEnter(e.target.value)}
-          />
-
-          <div>
-            <label className="block text-xs font-bold text-gray-700 mb-2">
-              Can staff enter if you are away?
-            </label>
-            <div className="flex gap-2">
-              {[
-                { label: 'Yes', value: true },
-                { label: 'No', value: false },
-              ].map((opt) => {
-                const selected = allowEntryWhenAway === opt.value;
-                return (
-                  <button
-                    key={opt.label}
-                    type="button"
-                    onClick={() => setAllowEntryWhenAway(opt.value)}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
-                      selected
-                        ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
-                        : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
+          {/* Urgent repair info */}
           <div className="rounded-xl bg-amber-50 border border-amber-200/80 p-4 flex items-start gap-2.5">
             <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
             <div className="text-xs text-amber-900">
@@ -299,7 +218,8 @@ export default function TenantWorkOrder() {
             </div>
           </div>
 
-          <div className="space-y-2">
+          {/* Submit Button */}
+          <div className="pt-2">
             <Button
               type="submit"
               variant="primary"
@@ -310,42 +230,44 @@ export default function TenantWorkOrder() {
             >
               Submit work order
             </Button>
-            <p className="text-xs text-gray-500">
-              You will see manager updates in Messages.
+            <p className="text-xs text-gray-500 mt-2 text-center">
+              Your property manager and administrator will see this request immediately.
             </p>
           </div>
         </Card>
       </form>
 
       {/* Trackable Work Orders for This Household */}
-      <Card padding="p-6">
+      <Card padding="p-6" className="max-w-3xl">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="text-base font-bold text-gray-900">Your work orders</h3>
             <p className="text-xs text-gray-500 mt-0.5">
-              Track repair status, attached photos, and manager updates
+              Track repair status, attached photos, and updates
             </p>
           </div>
-          <Badge variant="primary">{portalState.workOrders.length} total</Badge>
+          <Badge variant="primary">{portalState.workOrders?.length || 0} total</Badge>
         </div>
 
         <div className="divide-y divide-gray-100">
-          {portalState.workOrders.map((wo) => (
-            <div key={wo.id} className="py-4 first:pt-0 last:pb-0 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          {(portalState.workOrders || []).map((wo) => (
+            <div
+              key={wo.id}
+              className="py-4 first:pt-0 last:pb-0 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+            >
               <div className="space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs font-bold text-indigo-600">{wo.id}</span>
                   <Badge variant={wo.urgency === 'Urgent' ? 'danger' : 'success'}>
-                    {wo.urgency}
+                    {wo.urgency || 'Normal'}
                   </Badge>
-                  <Badge variant="default">{wo.category}</Badge>
                   <Badge variant={wo.status === 'Completed' ? 'success' : 'warning'}>
-                    {wo.status}
+                    {wo.status || 'Open'}
                   </Badge>
                 </div>
-                <p className="text-sm font-semibold text-gray-900">{wo.description}</p>
+                <p className="text-sm font-semibold text-gray-900">{wo.description || wo.title}</p>
                 <p className="text-xs text-gray-500">
-                  {wo.unit} · {wo.statusSummary} · {wo.createdAtLabel}
+                  {wo.unit || 'Assigned Unit'} · {wo.createdAtLabel || wo.loggedAt || 'Recent'}
                 </p>
                 {wo.photos?.length > 0 && (
                   <div className="flex items-center gap-2 pt-1">
@@ -369,11 +291,6 @@ export default function TenantWorkOrder() {
           ))}
         </div>
       </Card>
-
-      <p className="text-xs text-gray-400">
-        Submitting creates a trackable work order and notifies the manager. Photos and later repair updates stay attached to this request.
-      </p>
     </div>
   );
 }
-
