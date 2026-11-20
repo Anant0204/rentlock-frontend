@@ -62,7 +62,15 @@ export default function VendorList() {
     apiClient.get('/operations/vendors').then((res) => {
       const items = res?.items || res;
       if (Array.isArray(items)) {
-        const formatted = items.map((dbV) => {
+        if (items.length === 0) {
+          setVendors([]);
+          localStorage.setItem('custom_vendors', JSON.stringify([]));
+          localStorage.setItem('pm_vendors', JSON.stringify([]));
+          try { window.dispatchEvent(new Event('rentlock_vendors_changed')); } catch {}
+          return;
+        }
+        const localVendors = getVendors();
+        const merged = items.map((dbV) => {
           const formattedId = `VND-${String(dbV.id).padStart(3, '0')}`;
           return {
             ...dbV,
@@ -76,9 +84,10 @@ export default function VendorList() {
             coiStatus: dbV.coiVerified ? 'Valid' : 'Valid',
           };
         });
-        setVendors(formatted);
-        localStorage.setItem('custom_vendors', JSON.stringify(formatted));
-        localStorage.setItem('pm_vendors', JSON.stringify(formatted));
+        setVendors(merged);
+        localStorage.setItem('custom_vendors', JSON.stringify(merged));
+        localStorage.setItem('pm_vendors', JSON.stringify(merged));
+        try { window.dispatchEvent(new Event('rentlock_vendors_changed')); } catch {}
       }
     }).catch(() => {});
 

@@ -80,6 +80,9 @@ export const getVendors = () => {
 export const saveVendors = (vendors) => {
   localStorage.setItem('pm_vendors', JSON.stringify(vendors));
   localStorage.setItem('custom_vendors', JSON.stringify(vendors));
+  try {
+    window.dispatchEvent(new Event('rentlock_vendors_changed'));
+  } catch {}
 };
 
 export const addVendor = async (vendor) => {
@@ -290,28 +293,25 @@ export const saveVisitors = (visitors) => {
 };
 
 export const logVisitor = async (visitorData) => {
-  const current = getVisitors();
   let created = null;
   try {
-    const res = await apiClient.post('/operations/visitors', visitorData);
-    created = res?.data || res;
+    created = await apiClient.post('/operations/visitors', visitorData);
   } catch (err) {
-    console.warn('[API] Create visitor notice:', err.message);
+    console.warn('[API] Log visitor failed:', err.message);
   }
-
+  const current = getVisitors();
   const nextId = created?.id || `VIS-${Date.now().toString().slice(-4)}`;
-  const passId = created?.passCode || created?.passId || `V-PASS-${Math.floor(1000 + Math.random() * 9000)}`;
-
+  const passId = created?.passCode || created?.passId || `VPASS-${Math.floor(1000 + Math.random() * 9000)}`;
   const newVisitor = {
+    ...created,
+    ...visitorData,
     id: nextId,
     passId,
     passCode: passId,
     checkInTime: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
     checkOutTime: null,
-    status: 'On-Site · Active Pass',
-    entryMethod: 'Front Desk / Security Check-in',
-    ...visitorData,
-    ...(created || {}),
+    status: 'On-Site Now',
+    entryMethod: visitorData.entryMethod || 'Front Desk / Security Check-in',
   };
 
   const updated = [newVisitor, ...current.filter((v) => String(v.id) !== String(newVisitor.id))];

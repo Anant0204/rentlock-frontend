@@ -211,9 +211,6 @@ export default function ManagerDetail() {
                   <Phone className="w-3.5 h-3.5 text-gray-400" />
                   {manager.phone || '—'}
                 </span>
-                <span className="flex items-center gap-1 text-amber-600 font-medium">
-                  {manager.rating || '5.0'} ★ Client Rating
-                </span>
               </div>
             </div>
           </div>
