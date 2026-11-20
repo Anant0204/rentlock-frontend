@@ -304,9 +304,82 @@ export default function Invoices({ embedded = false, initialOpenPayment = false 
     setIsSubmittingPay(true);
     try {
       const isCash = payForm.method.includes('Cash');
-      const receiptId = isCash
+      let receiptId = isCash
         ? `CSH-${Math.floor(1000 + Math.random() * 9000)}`
         : `RCT-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      // Normalize payment method for backend
+      let normalizedMethod = 'Stripe Card';
+      const mLow = (payForm.method || '').toLowerCase();
+      if (mLow.includes('cash')) normalizedMethod = 'Cash Drawer';
+      else if (mLow.includes('check')) normalizedMethod = 'Manual Check';
+      else if (mLow.includes('ach') || mLow.includes('bank') || mLow.includes('direct')) normalizedMethod = 'ACH Direct';
+
+      let liveReceipt = null;
+      const numericInvId = Number(payForm.invoiceId);
+
+      // Attempt payment against existing backend invoice
+      if (numericInvId && !isNaN(numericInvId)) {
+        try {
+          const res = await apiClient.post(`/invoices/${numericInvId}/pay`, {
+            amountPaid: payAmt,
+            paymentMethod: normalizedMethod,
+            referenceNotes: payForm.reference || `Rent payment recorded for ${payForm.tenantName}`,
+          });
+          if (res?.receipt) liveReceipt = res.receipt;
+        } catch (apiErr) {
+          console.warn('[Invoices] Direct pay API retry with fallback:', apiErr.message);
+          // If invoice does not exist in DB yet, create one and pay
+          if (payForm.tenantId) {
+            try {
+              const invRes = await apiClient.post('/invoices', {
+                tenantId: Number(payForm.tenantId),
+                unitId: Number(payForm.unitId) || 1,
+                description: `Monthly Rent - ${payForm.tenantName}`,
+                amount: payAmt,
+                dueDate: payForm.paymentDate || new Date().toISOString().split('T')[0],
+              });
+              const createdInv = invRes?.data || invRes;
+              if (createdInv?.id) {
+                const payRes = await apiClient.post(`/invoices/${createdInv.id}/pay`, {
+                  amountPaid: payAmt,
+                  paymentMethod: normalizedMethod,
+                  referenceNotes: payForm.reference || `Rent payment recorded for ${payForm.tenantName}`,
+                });
+                if (payRes?.receipt) liveReceipt = payRes.receipt;
+              }
+            } catch (createErr) {
+              console.warn('[Invoices] Auto-invoice payment failed:', createErr.message);
+            }
+          }
+        }
+      } else if (payForm.tenantId) {
+        // No numeric invoice ID: create invoice on backend first then pay
+        try {
+          const invRes = await apiClient.post('/invoices', {
+            tenantId: Number(payForm.tenantId),
+            unitId: Number(payForm.unitId) || 1,
+            description: `Monthly Rent - ${payForm.tenantName}`,
+            amount: payAmt,
+            dueDate: payForm.paymentDate || new Date().toISOString().split('T')[0],
+          });
+          const createdInv = invRes?.data || invRes;
+          if (createdInv?.id) {
+            const payRes = await apiClient.post(`/invoices/${createdInv.id}/pay`, {
+              amountPaid: payAmt,
+              paymentMethod: normalizedMethod,
+              referenceNotes: payForm.reference || `Rent payment recorded for ${payForm.tenantName}`,
+            });
+            if (payRes?.receipt) liveReceipt = payRes.receipt;
+          }
+        } catch (createErr) {
+          console.warn('[Invoices] Auto-invoice creation and payment failed:', createErr.message);
+        }
+      }
+
+      if (liveReceipt?.receiptNumber) {
+        receiptId = liveReceipt.receiptNumber;
+      }
 
       // 1. If invoiceId exists, update invoice
       if (payForm.invoiceId) {
@@ -360,7 +433,7 @@ export default function Invoices({ embedded = false, initialOpenPayment = false 
       // 3. Create Audit Receipt Record
       const newReceipt = {
         id: receiptId,
-        invoiceId: payForm.invoiceId || 'DIRECT-RENT',
+        invoiceId: payForm.invoiceId || (liveReceipt?.invoiceId ? `INV-${liveReceipt.invoiceId}` : 'DIRECT-RENT'),
         date: payForm.paymentDate,
         tenantName: payForm.tenantName,
         propertyName: payForm.propertyName,
@@ -382,7 +455,7 @@ export default function Invoices({ embedded = false, initialOpenPayment = false 
       setIsRecordPaymentOpen(false);
     } catch (err) {
       console.error('Record payment error:', err);
-      toast.error('Failed to record payment.');
+      toast.error('Failed to record payment: ' + (err.message || 'Server error'));
     } finally {
       setIsSubmittingPay(false);
     }
@@ -425,13 +498,17 @@ export default function Invoices({ embedded = false, initialOpenPayment = false 
 
       // Call backend
       if (selectedTenant?.unitId) {
-        apiClient.post('/invoices', {
-          tenantId: Number(selectedTenant.id),
-          unitId: Number(selectedTenant.unitId),
-          description: `${chargeForm.chargeType} · ${selectedTenant.name}`,
-          amount: numAmt,
-          dueDate: chargeForm.dueDate,
-        }).catch(() => {});
+        try {
+          await apiClient.post('/invoices', {
+            tenantId: Number(selectedTenant.id),
+            unitId: Number(selectedTenant.unitId),
+            description: `${chargeForm.chargeType} · ${selectedTenant.name}`,
+            amount: numAmt,
+            dueDate: chargeForm.dueDate,
+          });
+        } catch (apiErr) {
+          console.warn('[Invoices] Backend post invoice fallback:', apiErr.message);
+        }
       }
 
       // Save locally

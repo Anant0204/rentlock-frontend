@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import MainLayout from '../layouts/MainLayout';
 import AuthLayout from '../layouts/AuthLayout';
+import ProtectedRoute from '../components/shared/ProtectedRoute';
 
 // Auth
 import Login from '../pages/auth/Login';
@@ -99,88 +100,97 @@ export default function AppRoutes() {
 
       {/* App */}
       <Route element={<MainLayout />}>
-        <Route path="/dashboard" element={<Dashboard />} />
+        {/* Admin & Manager Operations */}
+        <Route element={<ProtectedRoute allowedRoles={['admin', 'manager']} />}>
+          <Route path="/dashboard" element={<Dashboard />} />
 
-        {/* Properties */}
-        <Route path="/properties" element={<PropertyList />} />
-        <Route path="/properties/add" element={<AddProperty />} />
-        <Route path="/properties/:id" element={<PropertyDetail />} />
+          {/* Properties */}
+          <Route path="/properties" element={<PropertyList />} />
+          <Route path="/properties/add" element={<AddProperty />} />
+          <Route path="/properties/:id" element={<PropertyDetail />} />
 
-        {/* Units */}
-        <Route path="/units" element={<UnitList />} />
-        <Route path="/units/add" element={<AddUnit />} />
-        <Route path="/units/:id" element={<UnitDetail />} />
+          {/* Units */}
+          <Route path="/units" element={<UnitList />} />
+          <Route path="/units/add" element={<AddUnit />} />
+          <Route path="/units/:id" element={<UnitDetail />} />
 
-        {/* Tenants */}
-        <Route path="/tenants" element={<TenantList />} />
-        <Route path="/tenants/add" element={<AddTenant />} />
-        <Route path="/tenants/:id" element={<TenantProfile />} />
+          {/* Tenants */}
+          <Route path="/tenants" element={<TenantList />} />
+          <Route path="/tenants/add" element={<AddTenant />} />
+          <Route path="/tenants/:id" element={<TenantProfile />} />
 
-        {/* Owners */}
-        <Route path="/owners" element={<OwnerList />} />
-        <Route path="/owners/:id" element={<OwnerDetail />} />
+          {/* Owners */}
+          <Route path="/owners" element={<OwnerList />} />
+          <Route path="/owners/:id" element={<OwnerDetail />} />
 
-        {/* Managers */}
-        <Route path="/managers" element={<ManagerList />} />
-        <Route path="/managers/:id" element={<ManagerDetail />} />
+          {/* Managers */}
+          <Route path="/managers" element={<ManagerList />} />
+          <Route path="/managers/:id" element={<ManagerDetail />} />
 
-        {/* Leases */}
-        <Route path="/leases" element={<LeaseList />} />
-        <Route path="/leases/create" element={<CreateLease />} />
-        <Route path="/leases/:id" element={<LeaseDetail />} />
+          {/* Leases */}
+          <Route path="/leases" element={<LeaseList />} />
+          <Route path="/leases/create" element={<CreateLease />} />
+          <Route path="/leases/:id" element={<LeaseDetail />} />
 
-        {/* Rent & Payments */}
-        <Route path="/rent-payments" element={<RentAndPayments />} />
+          {/* Rent & Payments */}
+          <Route path="/rent-payments" element={<RentAndPayments />} />
 
-        {/* Maintenance */}
-        <Route path="/maintenance" element={<ComplaintBoard />} />
+          {/* Maintenance */}
+          <Route path="/maintenance" element={<ComplaintBoard />} />
 
-        {/* Operations & Building Management */}
-        <Route path="/operations" element={<OperationsOverview />} />
-        <Route path="/operations-overview" element={<Navigate to="/operations" replace />} />
-        <Route path="/vendors" element={<VendorList />} />
-        <Route path="/parking" element={<ParkingList />} />
-        <Route path="/visitors" element={<VisitorList />} />
-        <Route path="/staff" element={<StaffList />} />
-        <Route path="/communication" element={<CommunicationsHub />} />
+          {/* Operations & Building Management */}
+          <Route path="/operations" element={<OperationsOverview />} />
+          <Route path="/operations-overview" element={<Navigate to="/operations" replace />} />
+          <Route path="/vendors" element={<VendorList />} />
+          <Route path="/parking" element={<ParkingList />} />
+          <Route path="/visitors" element={<VisitorList />} />
+          <Route path="/staff" element={<StaffList />} />
+          <Route path="/communication" element={<CommunicationsHub />} />
 
-        {/* Expenses */}
-        <Route path="/expenses" element={<ExpenseList />} />
-        <Route path="/expenses/add" element={<AddExpense />} />
+          {/* Expenses */}
+          <Route path="/expenses" element={<ExpenseList />} />
+          <Route path="/expenses/add" element={<AddExpense />} />
 
-        {/* Reports */}
-        <Route path="/reports" element={<ReportsDashboard />} />
+          {/* Reports */}
+          <Route path="/reports" element={<ReportsDashboard />} />
 
-        {/* Settings */}
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/manager/settings" element={<ProfileSettings />} />
-        <Route path="/owner/settings" element={<ProfileSettings />} />
-        <Route path="/tenant/settings" element={<ProfileSettings />} />
+          {/* Settings */}
+          <Route path="/settings" element={<SettingsPage />} />
+        </Route>
 
         {/* Tenant Portal */}
-        <Route path="/tenant/pay" element={<TenantPay />} />
-        <Route path="/tenant/work-order" element={<TenantWorkOrder />} />
-        <Route path="/tenant/messages" element={<TenantMessages />} />
+        <Route element={<ProtectedRoute allowedRoles={['tenant', 'admin']} />}>
+          <Route path="/tenant/pay" element={<TenantPay />} />
+          <Route path="/tenant/work-order" element={<TenantWorkOrder />} />
+          <Route path="/tenant/messages" element={<TenantMessages />} />
+          <Route path="/tenant/settings" element={<ProfileSettings />} />
+        </Route>
 
         {/* Owner Portal */}
-        <Route path="/owner/properties" element={<OwnerProperties />} />
-        <Route path="/owner/tenants" element={<Navigate to="/owner/properties" replace />} />
-        <Route path="/owner/income-out" element={<OwnerIncomeOut />} />
-        <Route path="/owner/expenses" element={<OwnerExpenses />} />
-        <Route path="/owner/disbursements" element={<OwnerDisbursements />} />
-        <Route path="/owner/records" element={<OwnerRecords />} />
-        <Route path="/owner/communication" element={<OwnerCommunication />} />
-        <Route path="/owner/messages" element={<Navigate to="/owner/communication" replace />} />
+        <Route element={<ProtectedRoute allowedRoles={['owner', 'admin']} />}>
+          <Route path="/owner/properties" element={<OwnerProperties />} />
+          <Route path="/owner/tenants" element={<Navigate to="/owner/properties" replace />} />
+          <Route path="/owner/income-out" element={<OwnerIncomeOut />} />
+          <Route path="/owner/expenses" element={<OwnerExpenses />} />
+          <Route path="/owner/disbursements" element={<OwnerDisbursements />} />
+          <Route path="/owner/records" element={<OwnerRecords />} />
+          <Route path="/owner/communication" element={<OwnerCommunication />} />
+          <Route path="/owner/messages" element={<Navigate to="/owner/communication" replace />} />
+          <Route path="/owner/settings" element={<ProfileSettings />} />
+        </Route>
 
         {/* Manager Workspace */}
-        <Route path="/manager/properties" element={<ManagerProperties />} />
-        <Route path="/manager/properties/:id" element={<ManagerPropertyDetail />} />
-        <Route path="/manager/tenants" element={<ManagerTenants />} />
-        <Route path="/manager/work-orders" element={<ManagerWorkOrders />} />
-        <Route path="/manager/communication" element={<ManagerMessages />} />
-        <Route path="/manager/messages" element={<ManagerMessages />} />
-        <Route path="/manager/schedule" element={<ManagerSchedule />} />
-        <Route path="/manager/reports" element={<ManagerReports />} />
+        <Route element={<ProtectedRoute allowedRoles={['manager', 'admin']} />}>
+          <Route path="/manager/properties" element={<ManagerProperties />} />
+          <Route path="/manager/properties/:id" element={<ManagerPropertyDetail />} />
+          <Route path="/manager/tenants" element={<ManagerTenants />} />
+          <Route path="/manager/work-orders" element={<ManagerWorkOrders />} />
+          <Route path="/manager/communication" element={<ManagerMessages />} />
+          <Route path="/manager/messages" element={<ManagerMessages />} />
+          <Route path="/manager/schedule" element={<ManagerSchedule />} />
+          <Route path="/manager/reports" element={<ManagerReports />} />
+          <Route path="/manager/settings" element={<ProfileSettings />} />
+        </Route>
       </Route>
 
       {/* Redirect */}

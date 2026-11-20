@@ -57,7 +57,7 @@ export default function ManagerList() {
             id: serverMgr.id || localMgr?.id,
             name: serverMgr.name || localMgr?.name,
             email: serverMgr.email || localMgr?.email,
-            password: localMgr?.password || '123456',
+            password: '••••••••',
             properties: finalProps,
           };
         });

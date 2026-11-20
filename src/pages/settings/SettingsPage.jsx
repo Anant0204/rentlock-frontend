@@ -181,6 +181,46 @@ const RBAC_CATEGORIES = [
   },
 ];
 
+const PERM_LOCK_CONFIG = {
+  canAddProperties: {
+    manager: { badge: 'Admin & Owner Only (Rule 1)', reason: 'Under Rule 1, registering properties is reserved strictly for Property Owners & Platform Admins. Managers are assigned to manage existing buildings.' },
+    tenant: { badge: 'Staff & Management Only', reason: 'Tenants are residents living in units and do not register real estate assets.' },
+  },
+  canDeleteProperties: {
+    manager: { badge: 'Admin Only', reason: 'Decommissioning or permanently deleting real estate assets from the portfolio is strictly reserved for Primary Platform Administrators.' },
+    owner: { badge: 'Admin Only', reason: 'Permanently deleting building entities and historical lease ledgers is restricted to Primary Platform Administrators.' },
+    tenant: { badge: 'Staff & Management Only', reason: 'Tenants do not have administrative property management access.' },
+  },
+  canDeleteTenants: {
+    manager: { badge: 'Admin Only', reason: 'Permanently deleting resident records and archiving historical occupancy data is restricted to Primary Platform Administrators.' },
+    owner: { badge: 'Admin Only', reason: 'Permanently deleting resident records and archiving historical occupancy data is restricted to Primary Platform Administrators.' },
+    tenant: { badge: 'Staff & Management Only', reason: 'Tenants cannot modify building resident rosters.' },
+  },
+  canAddTenants: {
+    owner: { badge: 'Manager & Admin Only', reason: 'Resident enrollment and unit onboarding is handled by operational Site Managers and Platform Administrators.' },
+    tenant: { badge: 'Staff & Management Only', reason: 'Tenants cannot onboard residents into units.' },
+  },
+  canEditTenants: {
+    owner: { badge: 'Manager & Admin Only', reason: 'Resident profile modifications and contact details are managed by Site Managers and Platform Administrators.' },
+    tenant: { badge: 'Staff & Management Only', reason: 'Tenants cannot edit directory records.' },
+  },
+  canEditProperties: {
+    owner: { badge: 'Admin Only', reason: 'Architectural specifications, amenities, and floor plans are configured exclusively by Platform Administrators.' },
+    tenant: { badge: 'Staff & Management Only', reason: 'Tenants cannot modify property specifications.' },
+  },
+  canViewTenants: {
+    tenant: { badge: 'Staff & Management Only', reason: 'Tenant directories and resident contact information are protected by FCRA privacy controls.' },
+  },
+  canViewProperties: {
+    tenant: { badge: 'Staff & Management Only', reason: 'Portfolio building catalog browsing is restricted to platform management.' },
+  },
+};
+
+const getPermLockInfo = (permKey, role) => {
+  if (!role || role === 'admin') return null;
+  return PERM_LOCK_CONFIG[permKey]?.[role] || null;
+};
+
 export default function SettingsPage() {
   const { user } = useAuth();
 
@@ -306,7 +346,30 @@ export default function SettingsPage() {
   }, [managersList, ownersList]);
 
   // Granular RBAC State
-  const sanitizePerms = (perms) => {
+  const [rbacConfigMode, setRbacConfigMode] = useState('specific_user'); // 'specific_user' | 'role_tier'
+  const [selectedUserKey, setSelectedUserKey] = useState('manager@rentlock.com');
+  const [selectedRoleTier, setSelectedRoleTier] = useState('manager');
+
+  const currentSelectedUser = useMemo(() => {
+    return (
+      allUsersForRbac.find((u) => u.email.toLowerCase() === selectedUserKey.toLowerCase()) ||
+      managersList[0]
+    );
+  }, [allUsersForRbac, selectedUserKey, managersList]);
+
+  // Identify active target role (manager, owner, admin, tenant)
+  const currentRole = useMemo(() => {
+    if (rbacConfigMode === 'role_tier') {
+      return selectedRoleTier;
+    }
+    const role = (currentSelectedUser?.role || '').toLowerCase();
+    if (role) return role;
+    const email = (selectedUserKey || '').toLowerCase();
+    if (email.includes('owner') || ownersList.some((o) => o.email.toLowerCase() === email)) return 'owner';
+    return 'manager';
+  }, [rbacConfigMode, selectedRoleTier, currentSelectedUser, selectedUserKey, ownersList]);
+
+  const sanitizePerms = (perms, targetRole) => {
     if (!perms) return perms;
     const clean = { ...perms };
     if (!clean.canViewTenants) {
@@ -319,14 +382,24 @@ export default function SettingsPage() {
       clean.canEditProperties = false;
       clean.canDeleteProperties = false;
     }
+    const role = (targetRole || clean.role || currentRole || '').toLowerCase();
+    if (role && role !== 'admin') {
+      RBAC_CATEGORIES.forEach((cat) => {
+        cat.items.forEach((it) => {
+          if (getPermLockInfo(it.key, role)) {
+            clean[it.key] = false;
+          }
+        });
+      });
+      if (role === 'owner') {
+        clean.canAddProperties = true;
+      }
+    }
     return clean;
   };
 
-  const [rbacConfigMode, setRbacConfigMode] = useState('specific_user'); // 'specific_user' | 'role_tier'
-  const [selectedUserKey, setSelectedUserKey] = useState('manager@rentlock.com');
-  const [selectedRoleTier, setSelectedRoleTier] = useState('manager');
   const [permsDraft, setPermsDraft] = useState(() => {
-    return sanitizePerms(getUserEffectivePermissions('manager@rentlock.com'));
+    return sanitizePerms(getUserEffectivePermissions('manager@rentlock.com'), 'manager');
   });
 
   const [isRbacModalOpen, setIsRbacModalOpen] = useState(false);
@@ -335,41 +408,49 @@ export default function SettingsPage() {
   const [activeRbacCategory, setActiveRbacCategory] = useState('all');
 
   const visibleCategories = useMemo(() => {
-    if (activeRbacCategory === 'all') return RBAC_CATEGORIES;
-    return RBAC_CATEGORIES.filter((c) => c.id === activeRbacCategory);
-  }, [activeRbacCategory]);
+    const list = activeRbacCategory === 'all'
+      ? RBAC_CATEGORIES
+      : RBAC_CATEGORIES.filter((c) => c.id === activeRbacCategory);
+    return list.filter((cat) => cat.items.some((it) => !getPermLockInfo(it.key, currentRole)));
+  }, [activeRbacCategory, currentRole]);
 
   const totalPermissionsCount = useMemo(() => {
-    return RBAC_CATEGORIES.reduce((acc, cat) => acc + cat.items.length, 0);
-  }, []);
+    return RBAC_CATEGORIES.reduce((acc, cat) => {
+      return acc + cat.items.filter((item) => !getPermLockInfo(item.key, currentRole)).length;
+    }, 0);
+  }, [currentRole]);
 
   const totalAllowedCount = useMemo(() => {
     return RBAC_CATEGORIES.reduce((acc, cat) => {
-      return acc + cat.items.filter((item) => !!permsDraft[item.key]).length;
+      return acc + cat.items.filter((item) => {
+        if (getPermLockInfo(item.key, currentRole)) return false;
+        return !!permsDraft[item.key];
+      }).length;
     }, 0);
-  }, [permsDraft]);
-
-  const currentSelectedUser = useMemo(() => {
-    return (
-      allUsersForRbac.find((u) => u.email.toLowerCase() === selectedUserKey.toLowerCase()) ||
-      managersList[0]
-    );
-  }, [allUsersForRbac, selectedUserKey, managersList]);
+  }, [permsDraft, currentRole]);
 
   const handleSelectUser = (emailKey) => {
     setSelectedUserKey(emailKey);
+    const targetObj = allUsersForRbac.find((u) => u.email.toLowerCase() === emailKey.toLowerCase());
+    const role = targetObj?.role || (emailKey.toLowerCase().includes('owner') ? 'owner' : 'manager');
     const perms = getUserEffectivePermissions(emailKey);
-    setPermsDraft(sanitizePerms(perms));
+    setPermsDraft(sanitizePerms(perms, role));
   };
 
   const handleSelectRoleTier = (roleKey) => {
     setSelectedRoleTier(roleKey);
     const state = getAdminPortalState();
     const rolePerms = state.rolePermissions?.[roleKey] || DEFAULT_ROLE_PERMISSIONS[roleKey];
-    setPermsDraft(sanitizePerms({ ...rolePerms, role: roleKey, spendingCap: rolePerms.spendingCap || 0 }));
+    setPermsDraft(sanitizePerms({ ...rolePerms, role: roleKey, spendingCap: rolePerms.spendingCap || 0 }, roleKey));
   };
 
   const handleTogglePerm = (key) => {
+    const lockInfo = getPermLockInfo(key, currentRole);
+    if (lockInfo) {
+      toast.error(`Restricted: ${lockInfo.badge} — ${lockInfo.reason}`);
+      return;
+    }
+
     setPermsDraft((prev) => {
       const nextVal = !prev[key];
       const updated = {
@@ -392,7 +473,7 @@ export default function SettingsPage() {
         updated.canDeleteProperties = false;
       }
 
-      return updated;
+      return sanitizePerms(updated, currentRole);
     });
   };
 
@@ -403,7 +484,7 @@ export default function SettingsPage() {
     );
     setPortalState(next);
     const refreshed = getUserEffectivePermissions(selectedUserKey);
-    setPermsDraft(sanitizePerms(refreshed));
+    setPermsDraft(sanitizePerms(refreshed, currentRole));
     toast.success(`Reset ${currentSelectedUser?.name || selectedUserKey} to default role permissions.`);
   };
 
@@ -415,14 +496,16 @@ export default function SettingsPage() {
     let next;
     const targetLabel =
       rbacConfigMode === 'specific_user'
-        ? `${currentSelectedUser?.name || selectedUserKey} (${currentSelectedUser?.role})`
+        ? `${currentSelectedUser?.name || selectedUserKey} (${currentRole})`
         : `${ROLE_META[selectedRoleTier]?.label || selectedRoleTier} (Role Tier Default)`;
 
+    const sanitizedDraft = sanitizePerms(permsDraft, currentRole);
+
     if (rbacConfigMode === 'specific_user') {
-      next = saveUserPermissions(selectedUserKey, permsDraft, `${rbacReason.trim()} [${targetLabel}]`);
+      next = saveUserPermissions(selectedUserKey, sanitizedDraft, `${rbacReason.trim()} [${targetLabel}]`);
       toast.success(`Permissions for ${currentSelectedUser?.name || selectedUserKey} saved & applied immediately.`);
     } else {
-      next = saveRoleTierPermissions(selectedRoleTier, permsDraft, `${rbacReason.trim()} [${targetLabel}]`);
+      next = saveRoleTierPermissions(selectedRoleTier, sanitizedDraft, `${rbacReason.trim()} [${targetLabel}]`);
       toast.success(`${ROLE_META[selectedRoleTier]?.label || selectedRoleTier} role tier defaults saved & applied.`);
     }
     setPortalState(next);
@@ -859,7 +942,8 @@ export default function SettingsPage() {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 text-xs">
                       {RBAC_CATEGORIES.flatMap((c) => c.items).map((item) => {
-                        const allowed = !!permsDraft[item.key];
+                        const isLocked = !!getPermLockInfo(item.key, currentRole);
+                        const allowed = !isLocked && !!permsDraft[item.key];
                         return (
                           <div
                             key={item.key}
@@ -951,7 +1035,9 @@ export default function SettingsPage() {
                     All Access ({totalPermissionsCount})
                   </button>
                   {RBAC_CATEGORIES.map((cat) => {
-                    const activeCount = cat.items.filter((item) => !!permsDraft[item.key]).length;
+                    const roleCatItems = cat.items.filter((item) => !getPermLockInfo(item.key, currentRole));
+                    const activeCount = roleCatItems.filter((item) => !!permsDraft[item.key]).length;
+                    if (roleCatItems.length === 0) return null;
                     return (
                       <button
                         key={cat.id}
@@ -969,7 +1055,7 @@ export default function SettingsPage() {
                             activeRbacCategory === cat.id ? 'bg-indigo-500 text-white' : 'bg-gray-100 text-gray-600'
                           }`}
                         >
-                          {activeCount}/{cat.items.length}
+                          {activeCount}/{roleCatItems.length}
                         </span>
                       </button>
                     );
@@ -981,9 +1067,10 @@ export default function SettingsPage() {
               <div className="space-y-5">
                 {visibleCategories.map((cat) => {
                   const isViewAllowed = cat.viewKey ? !!permsDraft[cat.viewKey] : true;
-                  const visibleItems = cat.items.filter((item) => item.key === cat.viewKey || isViewAllowed);
-                  const activeCount = cat.items.filter((item) => !!permsDraft[item.key]).length;
-                  const isAllActive = activeCount === cat.items.length;
+                  const roleCatItems = cat.items.filter((item) => !getPermLockInfo(item.key, currentRole));
+                  const visibleItems = roleCatItems.filter((item) => item.key === cat.viewKey || isViewAllowed);
+                  const activeCount = roleCatItems.filter((item) => !!permsDraft[item.key]).length;
+                  const isAllActive = activeCount === roleCatItems.length;
                   const isNoneActive = activeCount === 0;
 
                   return (
@@ -1018,7 +1105,7 @@ export default function SettingsPage() {
                                 isAllActive ? 'bg-emerald-500' : isNoneActive ? 'bg-gray-400' : 'bg-indigo-500'
                               }`}
                             />
-                            {activeCount} of {cat.items.length} Allowed
+                            {activeCount} of {roleCatItems.length} Allowed
                           </span>
                         </div>
                       </div>
@@ -1029,11 +1116,16 @@ export default function SettingsPage() {
                           const isAllowed = !!permsDraft[item.key];
                           const ItemIcon = item.icon || Shield;
 
+                          const isPrimaryRoleAction =
+                            (currentRole === 'manager' && item.key === 'canAddTenants') ||
+                            (currentRole === 'owner' && item.key === 'canAddProperties') ||
+                            (currentRole === 'admin' && item.highlight);
+
                           return (
                             <div
                               key={item.key}
                               className={`p-4 sm:px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 transition-colors ${
-                                item.highlight && isAllowed
+                                isPrimaryRoleAction && isAllowed
                                   ? 'bg-emerald-50/20 hover:bg-emerald-50/30'
                                   : 'hover:bg-gray-50/70'
                               }`}
@@ -1051,7 +1143,7 @@ export default function SettingsPage() {
                                 <div>
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <span className="text-sm font-bold text-gray-900">{item.label}</span>
-                                    {item.highlight && (
+                                    {isPrimaryRoleAction && (
                                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
                                         Primary Role Action
                                       </span>

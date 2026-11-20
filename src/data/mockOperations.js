@@ -179,14 +179,14 @@ export const assignParkingStall = (stallId, data) => {
     const cleanPropertyId = data.propertyId && !isNaN(Number(data.propertyId)) ? Number(data.propertyId) : undefined;
     
     if (data.assignedResident === null || data.status === 'Vacant') {
-      apiClient.patch(`/operations/parking/${stallId}/vacate`).catch(() => {});
+      apiClient.patch(`/operations/parking/${stallId}/vacate`).catch((err) => console.warn('[ParkingSync] Vacate failed:', err.message));
     } else {
       apiClient.patch(`/operations/parking/${stallId}/assign`, {
         ...data,
         tenantId: cleanTenantId,
         propertyId: cleanPropertyId,
         vehiclePlate: rawPlate,
-      }).catch(() => {});
+      }).catch((err) => console.warn('[ParkingSync] Assign failed:', err.message));
     }
   }
   const current = getParkingStalls();
@@ -263,7 +263,7 @@ export const addParkingStall = async (stall) => {
 
 export const deleteParkingStall = (stallId) => {
   if (stallId) {
-    apiClient.delete(`/operations/parking/${stallId}`).catch(() => {});
+    apiClient.delete(`/operations/parking/${stallId}`).catch((err) => console.warn('[ParkingSync] Delete stall failed:', err.message));
   }
   const current = getParkingStalls();
   const updated = current.filter((s) => s.id !== stallId);
@@ -541,7 +541,7 @@ export const sendBroadcast = (data) => {
     isUrgent: Boolean(data.isEmergency || data.isUrgent),
     propertyId: data.propertyId ? Number(data.propertyId) : undefined,
   };
-  apiClient.post('/operations/communications', backendPayload).catch(() => {});
+  apiClient.post('/operations/communications', backendPayload).catch((err) => console.warn('[CommSync] Send failed:', err.message));
   const current = getBroadcasts();
   const nextId = `BC-${Date.now().toString().slice(-3)}`;
   const newBroadcast = {
@@ -561,7 +561,7 @@ export const sendBroadcast = (data) => {
 
 export const deleteBroadcast = (broadcastId) => {
   if (broadcastId) {
-    apiClient.delete(`/operations/communications/${broadcastId}`).catch(() => {});
+    apiClient.delete(`/operations/communications/${broadcastId}`).catch((err) => console.warn('[CommSync] Delete failed:', err.message));
   }
   const current = getBroadcasts();
   const updated = current.filter((b) => b.id !== broadcastId);

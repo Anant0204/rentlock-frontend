@@ -19,6 +19,7 @@ import { formatCurrency } from '../../utils/formatters';
 import { getOwners, getManagers, addOwner, addManager, updateManager } from '../../data/mockExtra';
 import { getParkingStalls, saveParkingStalls } from '../../data/mockOperations';
 import apiClient from '../../services/apiClient';
+import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
 
 const STEPS = [
@@ -33,6 +34,7 @@ const DRAFT_KEY = 'rentlock_add_property_draft';
 
 export default function AddProperty() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [ownersList, setOwnersList] = useState(() => getOwners().filter((o) => !o.archived));
   const [managersList, setManagersList] = useState(() => getManagers().filter((m) => !m.archived));
   const [portfoliosList, setPortfoliosList] = useState(() => getPortfoliosSync());
@@ -930,7 +932,7 @@ export default function AddProperty() {
 
     setIsSubmitting(false);
     toast.success('Property & Units created successfully!');
-    navigate('/properties');
+    navigate(user?.role === 'owner' ? '/owner/properties' : '/properties');
   };
 
   const handleNext = () => {
