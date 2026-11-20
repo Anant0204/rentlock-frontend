@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import apiClient from '../../services/apiClient';
 import {
   Building2, Search, Eye, Users,
-  CheckCircle2, DollarSign, UserCheck, ShieldCheck, Lock
+  CheckCircle2, DollarSign, UserCheck, ShieldCheck, Lock, Plus
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import PageHeader from '../../components/shared/PageHeader';
@@ -153,15 +153,20 @@ export default function OwnerProperties() {
     <div className="space-y-6 pb-12">
       <PageHeader
         title="My Property Portfolio"
-        subtitle={`Real estate assets assigned to your legal ownership account by Platform Admin. (Owner: ${ownerName})`}
+        subtitle={`Real estate assets registered and managed under your legal ownership portfolio. (Owner: ${ownerName || 'Claire Bennett'})`}
         breadcrumbs={[
           { label: 'Dashboard', path: '/dashboard' },
           { label: 'Properties' },
         ]}
         actions={
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold">
-            <ShieldCheck className="w-4 h-4 text-emerald-600" />
-            Assigned by Admin Only
+          <div className="flex items-center gap-2.5">
+            <Button
+              icon={Plus}
+              onClick={() => navigate('/properties/add')}
+              className="shadow-sm py-2 px-3.5 text-xs font-bold"
+            >
+              Add Property
+            </Button>
           </div>
         }
       />

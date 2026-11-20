@@ -5,23 +5,17 @@ export const getTenants = () => {
   if (saved) {
     try {
       const items = JSON.parse(saved);
-      return items.map((t) => {
-        const isJonny = String(t.id) === '6' || t.name?.toLowerCase().includes('jonny') || t.email?.toLowerCase().includes('jonny');
-        const dep = isJonny && (!t.deposit || Number(t.deposit) === 0) ? 100 : Number(t.deposit ?? t.trustDepositHeld ?? 0);
-        const rent = Number(t.rent ?? t.monthlyRent ?? (isJonny ? 1500 : 0));
-        let dueAmount = Number(t.dueAmount ?? t.currentBalance ?? 0);
-        if (dueAmount === 0 && rent > dep) {
-          dueAmount = Math.max(0, rent - dep);
-        }
-        return {
+      if (Array.isArray(items)) {
+        return items.map((t) => ({
           ...t,
-          deposit: dep,
-          trustDepositHeld: dep,
-          rent,
-          dueAmount,
-          currentBalance: dueAmount,
-        };
-      });
+          deposit: Number(t.deposit ?? t.trustDepositHeld ?? 0),
+          trustDepositHeld: Number(t.deposit ?? t.trustDepositHeld ?? 0),
+          rent: Number(t.rent ?? t.monthlyRent ?? 0),
+          dueAmount: Number(t.dueAmount ?? t.currentBalance ?? 0),
+          currentBalance: Number(t.dueAmount ?? t.currentBalance ?? 0),
+        }));
+      }
+      return [];
     } catch {
       return [];
     }
