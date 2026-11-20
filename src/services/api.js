@@ -333,4 +333,8 @@ export const authService = {
       return saved ? JSON.parse(saved) : null;
     }
   },
+
+  changePassword: async (currentPassword, newPassword) => {
+    return await apiClient.post('/auth/change-password', { currentPassword, newPassword });
+  },
 };

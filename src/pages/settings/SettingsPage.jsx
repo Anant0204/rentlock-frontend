@@ -29,6 +29,7 @@ import {
   Check,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { authService } from '../../services/api';
 import PageHeader from '../../components/shared/PageHeader';
 import Card from '../../components/ui/Card';
 import Input from '../../components/ui/Input';
@@ -204,7 +205,7 @@ export default function SettingsPage() {
   const [adminConfirmPassword, setAdminConfirmPassword] = useState('');
   const [isUpdatingAdminPassword, setIsUpdatingAdminPassword] = useState(false);
 
-  const handleAdminPasswordUpdate = (e) => {
+  const handleAdminPasswordUpdate = async (e) => {
     e.preventDefault();
     if (!adminCurrentPassword) {
       toast.error('Please enter your current password');
@@ -220,13 +221,17 @@ export default function SettingsPage() {
     }
 
     setIsUpdatingAdminPassword(true);
-    setTimeout(() => {
-      setIsUpdatingAdminPassword(false);
+    try {
+      await authService.changePassword(adminCurrentPassword, adminNewPassword);
       setAdminCurrentPassword('');
       setAdminNewPassword('');
       setAdminConfirmPassword('');
-      toast.success('Admin password updated successfully!');
-    }, 400);
+      toast.success('Admin password updated successfully in database!');
+    } catch (err) {
+      toast.error(err.message || 'Failed to update admin password');
+    } finally {
+      setIsUpdatingAdminPassword(false);
+    }
   };
 
   // Available Accounts for Granular RBAC Assignment

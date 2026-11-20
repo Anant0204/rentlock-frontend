@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { User, Lock, KeyRound, Save, ShieldCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { authService } from '../../services/api';
 import PageHeader from '../../components/shared/PageHeader';
 import Card from '../../components/ui/Card';
 import Input from '../../components/ui/Input';
@@ -82,7 +83,7 @@ export default function ProfileSettings() {
     }
   };
 
-  const handlePasswordUpdate = (e) => {
+  const handlePasswordUpdate = async (e) => {
     e.preventDefault();
     if (!currentPassword) {
       toast.error('Please enter your current password');
@@ -98,13 +99,17 @@ export default function ProfileSettings() {
     }
 
     setIsUpdatingPassword(true);
-    setTimeout(() => {
-      setIsUpdatingPassword(false);
+    try {
+      await authService.changePassword(currentPassword, newPassword);
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-      toast.success('Password updated successfully!');
-    }, 400);
+      toast.success('Password updated successfully in database!');
+    } catch (err) {
+      toast.error(err.message || 'Failed to update password');
+    } finally {
+      setIsUpdatingPassword(false);
+    }
   };
 
   return (
