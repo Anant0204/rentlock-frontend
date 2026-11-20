@@ -33,7 +33,7 @@ const TABS = [
 ];
 
 export default function ParkingList() {
-  const [stalls, setStalls] = useState(() => getParkingStalls());
+  const [stalls, setStalls] = useState([]);
   const [activeTab, setActiveTab] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState('cards'); // 'cards' | 'table'
@@ -53,6 +53,7 @@ export default function ParkingList() {
       const items = res?.items || res;
       if (Array.isArray(items)) {
         setStalls(items);
+        localStorage.setItem('pm_parking', JSON.stringify(items));
         localStorage.setItem('custom_parking_stalls', JSON.stringify(items));
       }
     }).catch(() => {});
@@ -294,17 +295,27 @@ export default function ParkingList() {
     setStallToRelease(null);
   };
 
-  const handleAddStallSubmit = (e) => {
+  const handleAddStallSubmit = async (e) => {
     e.preventDefault();
     if (!addForm.spotNumber.trim()) {
       toast.error('Spot number is required (e.g. P-109).');
       return;
     }
-    const updated = addParkingStall(addForm);
+    const prop = propertyOptions.find((p) => p.name === addForm.propertyName) || propertyOptions[0];
+    const payload = {
+      ...addForm,
+      stallNumber: addForm.spotNumber.trim(),
+      spotNumber: addForm.spotNumber.trim(),
+      propertyId: prop?.id,
+      propertyName: addForm.propertyName || prop?.name || 'General Portfolio',
+      monthlyFee: Number(addForm.monthlyFee) || 150,
+    };
+    const updated = await addParkingStall(payload);
     setStalls(updated);
     setIsAddStallOpen(false);
     setAddForm({
       spotNumber: '',
+      propertyName: '',
       lotLocation: 'Sub-Level 1 (North Garage)',
       spotType: 'Standard Covered',
       monthlyFee: '150',

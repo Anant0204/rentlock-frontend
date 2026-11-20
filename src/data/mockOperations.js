@@ -174,21 +174,30 @@ export const assignParkingStall = (stallId, data) => {
     const rawPlate = data.licensePlate || data.vehiclePlate;
     const cleanTenantId = data.tenantId && !isNaN(Number(data.tenantId)) ? Number(data.tenantId) : null;
     const cleanPropertyId = data.propertyId && !isNaN(Number(data.propertyId)) ? Number(data.propertyId) : undefined;
-    apiClient.patch(`/operations/parking/${stallId}/assign`, {
-      ...data,
-      tenantId: cleanTenantId,
-      propertyId: cleanPropertyId,
-      vehiclePlate: rawPlate,
-    }).catch(() => {});
+    
+    if (data.assignedResident === null || data.status === 'Vacant') {
+      apiClient.patch(`/operations/parking/${stallId}/vacate`).catch(() => {});
+    } else {
+      apiClient.patch(`/operations/parking/${stallId}/assign`, {
+        ...data,
+        tenantId: cleanTenantId,
+        propertyId: cleanPropertyId,
+        vehiclePlate: rawPlate,
+      }).catch(() => {});
+    }
   }
   const current = getParkingStalls();
   const isNowAssigned = Boolean(
-    data.assignedResident ||
-    (data.unitNumber && data.unitNumber !== 'Unassigned') ||
+    (data.assignedResident && data.assignedResident !== 'Unassigned') ||
+    (data.unitNumber && data.unitNumber !== 'Unassigned' && data.unitNumber !== '') ||
     data.status === 'Assigned'
   );
   const updated = current.map((stall) => {
-    if (String(stall.id) === String(stallId) || (stall.spotNumber && stall.spotNumber === stallId)) {
+    if (
+      String(stall.id) === String(stallId) ||
+      (stall.spotNumber && stall.spotNumber === stallId) ||
+      (stall.stallNumber && stall.stallNumber === stallId)
+    ) {
       return {
         ...stall,
         ...data,
@@ -201,13 +210,34 @@ export const assignParkingStall = (stallId, data) => {
   return updated;
 };
 
-export const addParkingStall = (stall) => {
-  apiClient.post('/operations/parking', stall).catch(() => {});
+export const addParkingStall = async (stall) => {
+  let created = null;
+  try {
+    const res = await apiClient.post('/operations/parking', {
+      stallNumber: stall.stallNumber || stall.spotNumber,
+      spotNumber: stall.spotNumber || stall.stallNumber,
+      propertyId: stall.propertyId,
+      propertyName: stall.propertyName,
+      lotLocation: stall.lotLocation,
+      spotType: stall.spotType,
+      monthlyFee: stall.monthlyFee,
+      assignedResident: stall.assignedResident || null,
+      unitNumber: stall.unitNumber || 'Unassigned',
+      licensePlate: stall.licensePlate || null,
+      status: stall.assignedResident ? 'Assigned' : 'Vacant',
+    });
+    created = res?.data || res;
+  } catch (err) {
+    console.warn('[API] Create parking stall failed:', err.message);
+  }
+
   const current = getParkingStalls();
   const nextNum = current.length + 1;
+  const spotNum = stall.spotNumber || stall.stallNumber || `P-1${String(nextNum).padStart(2, '0')}`;
   const newStall = {
-    id: `STALL-${String(nextNum).padStart(3, '0')}`,
-    spotNumber: stall.spotNumber || `P-1${String(nextNum).padStart(2, '0')}`,
+    id: created?.id || `STALL-${String(nextNum).padStart(3, '0')}`,
+    spotNumber: spotNum,
+    stallNumber: spotNum,
     propertyName: stall.propertyName || 'Sunrise Residency',
     lotLocation: stall.lotLocation || 'Sub-Level 1 (North Garage)',
     spotType: stall.spotType || 'Standard Covered',
@@ -218,8 +248,12 @@ export const addParkingStall = (stall) => {
     permitTag: stall.permitTag || '—',
     monthlyFee: Number(stall.monthlyFee) || 150,
     status: stall.assignedResident ? 'Assigned' : 'Vacant · Available',
+    ...(created || {}),
   };
-  const updated = [...current, newStall];
+  const updated = [
+    ...current.filter((s) => (s.spotNumber || s.stallNumber) !== spotNum),
+    newStall
+  ];
   saveParkingStalls(updated);
   return updated;
 };
@@ -241,7 +275,7 @@ const INITIAL_VISITORS = [];
 
 export const getVisitors = () => {
   try {
-    const raw = localStorage.getItem('pm_visitors');
+    const raw = localStorage.getItem('pm_visitors') || localStorage.getItem('custom_visitors');
     if (raw) return JSON.parse(raw);
   } catch (err) {
     console.warn('Could not read visitors cache', err);
@@ -252,37 +286,50 @@ export const getVisitors = () => {
 
 export const saveVisitors = (visitors) => {
   localStorage.setItem('pm_visitors', JSON.stringify(visitors));
+  localStorage.setItem('custom_visitors', JSON.stringify(visitors));
 };
 
-export const logVisitor = (visitorData) => {
-  apiClient.post('/operations/visitors', visitorData).catch(() => {});
+export const logVisitor = async (visitorData) => {
   const current = getVisitors();
-  const nextId = `VIS-${Date.now().toString().slice(-4)}`;
-  const passId = `V-PASS-${Math.floor(1000 + Math.random() * 9000)}`;
+  let created = null;
+  try {
+    const res = await apiClient.post('/operations/visitors', visitorData);
+    created = res?.data || res;
+  } catch (err) {
+    console.warn('[API] Create visitor notice:', err.message);
+  }
+
+  const nextId = created?.id || `VIS-${Date.now().toString().slice(-4)}`;
+  const passId = created?.passCode || created?.passId || `V-PASS-${Math.floor(1000 + Math.random() * 9000)}`;
+
   const newVisitor = {
     id: nextId,
     passId,
+    passCode: passId,
     checkInTime: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
     checkOutTime: null,
     status: 'On-Site · Active Pass',
     entryMethod: 'Front Desk / Security Check-in',
     ...visitorData,
+    ...(created || {}),
   };
-  const updated = [newVisitor, ...current];
+
+  const updated = [newVisitor, ...current.filter((v) => String(v.id) !== String(newVisitor.id))];
   saveVisitors(updated);
   return updated;
 };
 
-export const checkoutVisitor = (visitorId) => {
+export const checkoutVisitor = async (visitorId) => {
   if (visitorId) {
     apiClient.patch(`/operations/visitors/${visitorId}/checkout`).catch(() => {});
   }
   const current = getVisitors();
   const updated = current.map((v) => {
-    if (v.id === visitorId) {
+    if (String(v.id) === String(visitorId) || v.passCode === visitorId || v.passId === visitorId) {
       return {
         ...v,
         status: 'Departed',
+        isCheckedIn: false,
         checkOutTime: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
       };
     }

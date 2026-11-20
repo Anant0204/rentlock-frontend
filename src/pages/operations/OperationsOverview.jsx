@@ -29,31 +29,20 @@ import { formatUsd } from '../../utils/formatters';
 export default function OperationsOverview() {
   const navigate = useNavigate();
 
-  const [vendors, setVendors] = useState(() => getVendors());
-  const [stalls, setStalls] = useState(() => getParkingStalls());
-  const [visitors, setVisitors] = useState(() => getVisitors());
-  const [staff, setStaff] = useState(() => getStaff());
-  const [broadcasts, setBroadcasts] = useState(() => getBroadcasts());
-  const [invoices, setInvoices] = useState(() => getInvoices());
+  const [vendors, setVendors] = useState([]);
+  const [stalls, setStalls] = useState([]);
+  const [visitors, setVisitors] = useState([]);
+  const [staff, setStaff] = useState([]);
+  const [broadcasts, setBroadcasts] = useState([]);
+  const [invoices, setInvoices] = useState([]);
 
   const syncLiveOperationsData = useCallback(async () => {
     // 1. Vendors
     apiClient.get('/operations/vendors').then((res) => {
       const items = res?.items || res;
       if (Array.isArray(items)) {
-        setVendors((prev) => {
-          const serverIds = new Set(items.map((v) => String(v.id)));
-          const serverNames = new Set(items.map((v) => (v.name || '').trim().toLowerCase()));
-          const merged = [...items];
-          prev.forEach((lv) => {
-            const lvName = (lv.name || '').trim().toLowerCase();
-            if (!serverIds.has(String(lv.id)) && !serverNames.has(lvName)) {
-              merged.push(lv);
-            }
-          });
-          saveVendors(merged);
-          return merged;
-        });
+        setVendors(items);
+        saveVendors(items);
       }
     }).catch(() => {});
 
@@ -61,18 +50,8 @@ export default function OperationsOverview() {
     apiClient.get('/operations/parking').then((res) => {
       const items = res?.items || res;
       if (Array.isArray(items)) {
-        setStalls((prev) => {
-          const serverNums = new Set(items.map((s) => String(s.spotNumber || s.stallNumber || '').trim().toLowerCase()));
-          const merged = [...items];
-          prev.forEach((ls) => {
-            const num = String(ls.spotNumber || ls.stallNumber || '').trim().toLowerCase();
-            if (num && !serverNums.has(num)) {
-              merged.push(ls);
-            }
-          });
-          saveParkingStalls(merged);
-          return merged;
-        });
+        setStalls(items);
+        saveParkingStalls(items);
       }
     }).catch(() => {});
 
@@ -80,18 +59,8 @@ export default function OperationsOverview() {
     apiClient.get('/operations/visitors').then((res) => {
       const items = res?.items || res;
       if (Array.isArray(items)) {
-        setVisitors((prev) => {
-          const serverIds = new Set(items.map((v) => String(v.id || v.passId || v.passCode)));
-          const merged = [...items];
-          prev.forEach((lv) => {
-            const id = String(lv.id || lv.passId || lv.passCode);
-            if (!serverIds.has(id)) {
-              merged.push(lv);
-            }
-          });
-          saveVisitors(merged);
-          return merged;
-        });
+        setVisitors(items);
+        saveVisitors(items);
       }
     }).catch(() => {});
 
@@ -99,54 +68,25 @@ export default function OperationsOverview() {
     apiClient.get('/operations/staff').then((res) => {
       const items = res?.items || res;
       if (Array.isArray(items)) {
-        setStaff((prev) => {
-          const serverIds = new Set(items.map((s) => String(s.id)));
-          const serverNames = new Set(items.map((s) => (s.name || '').trim().toLowerCase()));
-          const merged = [...items];
-          prev.forEach((ls) => {
-            const name = (ls.name || '').trim().toLowerCase();
-            if (!serverIds.has(String(ls.id)) && !serverNames.has(name)) {
-              merged.push(ls);
-            }
-          });
-          saveStaff(merged);
-          return merged;
-        });
+        setStaff(items);
+        saveStaff(items);
       }
     }).catch(() => {});
 
     // 5. Communications
     apiClient.get('/operations/communications').then((res) => {
       const items = res?.items || res;
-      if (Array.isArray(items) && items.length > 0) {
-        setBroadcasts((prev) => {
-          const serverIds = new Set(items.map((b) => String(b.id)));
-          const merged = [...items];
-          prev.forEach((lb) => {
-            if (!serverIds.has(String(lb.id))) {
-              merged.push(lb);
-            }
-          });
-          saveBroadcasts(merged);
-          return merged;
-        });
+      if (Array.isArray(items)) {
+        setBroadcasts(items);
+        saveBroadcasts(items);
       }
     }).catch(() => {});
 
     // 6. Invoices & Escrow
     apiClient.get('/invoices?limit=100').then((res) => {
       const items = res?.items || res;
-      if (Array.isArray(items) && items.length > 0) {
-        setInvoices((prev) => {
-          const serverIds = new Set(items.map((i) => String(i.id)));
-          const merged = [...items];
-          prev.forEach((li) => {
-            if (!serverIds.has(String(li.id))) {
-              merged.push(li);
-            }
-          });
-          return merged;
-        });
+      if (Array.isArray(items)) {
+        setInvoices(items);
       }
     }).catch(() => {});
   }, []);

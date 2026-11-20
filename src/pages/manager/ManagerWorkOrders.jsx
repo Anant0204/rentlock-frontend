@@ -100,23 +100,11 @@ export default function ManagerWorkOrders() {
             localStorage.setItem('rentlock_live_work_orders', JSON.stringify(liveMapped));
           } catch {}
 
-          setState((prev) => {
-            const combined = [...liveMapped, ...(prev.workOrders || [])];
-            const seen = new Set();
-            const deduped = combined.filter((w) => {
-              const key = ((w.description || w.title || '').trim()).toLowerCase();
-              if (key.length > 5) {
-                if (seen.has(key)) return false;
-                seen.add(key);
-              }
-              return true;
-            });
-            return {
-              ...prev,
-              properties: local.properties.length > 0 ? local.properties : prev.properties,
-              workOrders: deduped,
-            };
-          });
+          setState((prev) => ({
+            ...prev,
+            properties: local.properties.length > 0 ? local.properties : prev.properties,
+            workOrders: liveMapped,
+          }));
           return;
         }
       }

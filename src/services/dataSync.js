@@ -105,18 +105,22 @@ export async function syncBackendData(force = false) {
       }
     }
 
-    // Hydrate Operations
+    // Hydrate Operations directly from backend responses
     if (vendorsRes.status === 'fulfilled' && Array.isArray(vendorsRes.value)) {
       localStorage.setItem('pm_vendors', JSON.stringify(vendorsRes.value));
+      localStorage.setItem('custom_vendors', JSON.stringify(vendorsRes.value));
     }
     if (parkingRes.status === 'fulfilled' && Array.isArray(parkingRes.value)) {
       localStorage.setItem('pm_parking', JSON.stringify(parkingRes.value));
+      localStorage.setItem('custom_parking_stalls', JSON.stringify(parkingRes.value));
     }
     if (visitorsRes.status === 'fulfilled' && Array.isArray(visitorsRes.value)) {
       localStorage.setItem('pm_visitors', JSON.stringify(visitorsRes.value));
+      localStorage.setItem('custom_visitors', JSON.stringify(visitorsRes.value));
     }
     if (staffRes.status === 'fulfilled' && Array.isArray(staffRes.value)) {
       localStorage.setItem('pm_staff', JSON.stringify(staffRes.value));
+      localStorage.setItem('custom_staff', JSON.stringify(staffRes.value));
     }
     if (broadcastsRes.status === 'fulfilled' && Array.isArray(broadcastsRes.value)) {
       localStorage.setItem('pm_broadcasts', JSON.stringify(broadcastsRes.value));

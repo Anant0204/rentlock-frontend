@@ -14,6 +14,7 @@ import Badge from '../../components/ui/Badge';
 import Modal from '../../components/ui/Modal';
 import { AMENITIES, US_STATES, UNIT_TYPES } from '../../utils/constants';
 import { getAmenities, addAmenity as addAmenityToStore, deleteAmenity as deleteAmenityFromStore } from '../../utils/amenityStore';
+import { getPortfoliosSync, fetchPortfolios, addPortfolioGroup, deletePortfolioGroup } from '../../utils/portfolioStore';
 import { formatCurrency } from '../../utils/formatters';
 import { getOwners, getManagers, addOwner, addManager, updateManager } from '../../data/mockExtra';
 import { getParkingStalls, saveParkingStalls } from '../../data/mockOperations';
@@ -34,8 +35,23 @@ export default function AddProperty() {
   const navigate = useNavigate();
   const [ownersList, setOwnersList] = useState(() => getOwners().filter((o) => !o.archived));
   const [managersList, setManagersList] = useState(() => getManagers().filter((m) => !m.archived));
+  const [portfoliosList, setPortfoliosList] = useState(() => getPortfoliosSync());
+  const [isPortfolioModalOpen, setIsPortfolioModalOpen] = useState(false);
+  const [newPortfolioInput, setNewPortfolioInput] = useState('');
 
   useEffect(() => {
+    // Fetch live portfolios
+    fetchPortfolios().then((items) => {
+      if (Array.isArray(items) && items.length > 0) {
+        setPortfoliosList(items);
+      }
+    });
+
+    const handlePortfoliosUpdate = (e) => {
+      if (Array.isArray(e.detail)) setPortfoliosList(e.detail);
+    };
+    window.addEventListener('rentlock_portfolios_updated', handlePortfoliosUpdate);
+
     // Fetch live managers
     apiClient.get('/managers').then((res) => {
       const items = res?.items || res;
@@ -59,6 +75,10 @@ export default function AddProperty() {
         });
       }
     }).catch(() => { });
+
+    return () => {
+      window.removeEventListener('rentlock_portfolios_updated', handlePortfoliosUpdate);
+    };
   }, []);
 
   const [currentStep, setCurrentStep] = useState(() => {
@@ -272,6 +292,25 @@ export default function AddProperty() {
     setAvailableAmenities(updated);
     setSelectedAmenities((prev) => prev.filter((a) => a !== amenityToDelete));
     toast.success(`Amenity "${amenityToDelete}" removed`);
+  };
+
+  const handleAddPortfolio = async () => {
+    const trimmed = newPortfolioInput.trim();
+    if (!trimmed) return;
+    const updated = await addPortfolioGroup(trimmed);
+    setPortfoliosList(updated);
+    update('portfolioGroup', trimmed);
+    setNewPortfolioInput('');
+    toast.success(`Portfolio "${trimmed}" added!`);
+  };
+
+  const handleDeletePortfolio = async (name) => {
+    const updated = await deletePortfolioGroup(name);
+    setPortfoliosList(updated);
+    if (form.portfolioGroup === name) {
+      update('portfolioGroup', updated[0] || 'Default Portfolio');
+    }
+    toast.success(`Portfolio "${name}" removed.`);
   };
 
   const addOwnershipRow = () => {
@@ -974,7 +1013,23 @@ export default function AddProperty() {
                 </div>
                 <Select label="Property Use" required options={['Residential', 'Commercial', 'Mixed-Use', 'Industrial / Warehouse']} value={form.type} onChange={(e) => update('type', e.target.value)} />
                 <Select label="Building Type" required options={['Multifamily', 'Single-Family', 'Townhome', 'Office', 'Retail', 'Warehouse', 'Mixed-Use']} value={form.category} onChange={(e) => update('category', e.target.value)} />
-                <Select label="Portfolio Group" options={['Brooklyn & Queens', 'New Jersey', 'Texas Commercial & Resi', 'Core East Coast']} value={form.portfolioGroup} onChange={(e) => update('portfolioGroup', e.target.value)} />
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-gray-700">Portfolio Group</label>
+                    <button
+                      type="button"
+                      onClick={() => setIsPortfolioModalOpen(true)}
+                      className="text-[11px] text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Manage / Add Portfolios
+                    </button>
+                  </div>
+                  <Select
+                    options={portfoliosList}
+                    value={form.portfolioGroup}
+                    onChange={(e) => update('portfolioGroup', e.target.value)}
+                  />
+                </div>
               </div>
             )}
 
@@ -1886,6 +1941,75 @@ export default function AddProperty() {
             />
           </div>
         </form>
+      </Modal>
+
+      {/* MANAGE PORTFOLIO GROUPS MODAL */}
+      <Modal
+        isOpen={isPortfolioModalOpen}
+        onClose={() => setIsPortfolioModalOpen(false)}
+        title="Manage Portfolio Groups"
+        size="md"
+      >
+        <div className="space-y-4 text-xs">
+          <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-indigo-900">
+            Portfolio groups organize your properties by regional cluster, ownership entity, or asset tier.
+          </div>
+
+          <div className="flex gap-2">
+            <Input
+              placeholder="Enter new portfolio name (e.g. South Florida Commercial)"
+              value={newPortfolioInput}
+              onChange={(e) => setNewPortfolioInput(e.target.value)}
+              className="flex-1"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleAddPortfolio();
+                }
+              }}
+            />
+            <Button type="button" onClick={handleAddPortfolio} disabled={!newPortfolioInput.trim()}>
+              Add Group
+            </Button>
+          </div>
+
+          <div className="space-y-2 mt-4">
+            <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
+              Existing Portfolios ({portfoliosList.length})
+            </label>
+            <div className="max-h-60 overflow-y-auto divide-y divide-gray-100 border border-gray-200 rounded-xl">
+              {portfoliosList.map((p) => (
+                <div key={p} className="p-2.5 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                  <span className={`font-semibold ${form.portfolioGroup === p ? 'text-indigo-600' : 'text-gray-800'}`}>
+                    {p} {form.portfolioGroup === p && '(Selected)'}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    {form.portfolioGroup !== p && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          update('portfolioGroup', p);
+                          toast.success(`Selected "${p}"`);
+                        }}
+                        className="px-2 py-1 text-[11px] font-bold text-indigo-600 hover:bg-indigo-50 rounded-lg cursor-pointer"
+                      >
+                        Select
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleDeletePortfolio(p)}
+                      className="p-1 text-gray-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer"
+                      title="Delete Portfolio Group"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </Modal>
     </div>
   );

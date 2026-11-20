@@ -13,7 +13,7 @@ import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
 import apiClient from '../../services/apiClient';
-import { getVisitors, logVisitor, checkoutVisitor } from '../../data/mockOperations';
+import { getVisitors, saveVisitors, logVisitor, checkoutVisitor } from '../../data/mockOperations';
 import { getTenants } from '../../data/mockTenants';
 
 const TABS = [
@@ -24,7 +24,7 @@ const TABS = [
 ];
 
 export default function VisitorList() {
-  const [visitors, setVisitors] = useState(() => getVisitors());
+  const [visitors, setVisitors] = useState([]);
   const [activeTab, setActiveTab] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
@@ -35,6 +35,7 @@ export default function VisitorList() {
       const items = res?.items || res;
       if (Array.isArray(items)) {
         setVisitors(items);
+        localStorage.setItem('pm_visitors', JSON.stringify(items));
         localStorage.setItem('custom_visitors', JSON.stringify(items));
       }
     }).catch(() => {});
@@ -83,8 +84,8 @@ export default function VisitorList() {
     return { total, onSite, preRegistered, departed };
   }, [visitors]);
 
-  const handleCheckout = (visitorId, guestName) => {
-    const updated = checkoutVisitor(visitorId);
+  const handleCheckout = async (visitorId, guestName) => {
+    const updated = await checkoutVisitor(visitorId);
     setVisitors(updated);
     toast.success(`${guestName} checked out successfully.`);
   };
@@ -92,15 +93,17 @@ export default function VisitorList() {
   const handleCheckInPreRegistered = (visitorId, guestName) => {
     const current = getVisitors();
     const updated = current.map((v) => {
-      if (v.id === visitorId) {
+      if (String(v.id) === String(visitorId) || v.passCode === visitorId || v.passId === visitorId) {
         return {
           ...v,
           status: 'On-Site · Active Pass',
+          isCheckedIn: true,
           checkInTime: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
         };
       }
       return v;
     });
+    saveVisitors(updated);
     setVisitors(updated);
     toast.success(`${guestName} checked in and pass activated.`);
   };
@@ -131,20 +134,24 @@ export default function VisitorList() {
     }));
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.guestName.trim()) {
       toast.error('Guest name is required.');
       return;
     }
-    const updated = logVisitor({
+    const matchedTenant = tenants.find((t) => t.name === form.hostResident);
+    const updated = await logVisitor({
       guestName: form.guestName.trim(),
       phone: form.phone.trim() || '—',
+      guestPhone: form.phone.trim() || undefined,
       hostResident: form.hostResident,
+      hostTenantId: matchedTenant?.id || 1,
       unitNumber: form.unitNumber,
       propertyName: form.propertyName,
       expectedDate: form.expectedDate,
       vehiclePlate: form.vehiclePlate.trim() === 'NY · ' ? 'No Vehicle' : form.vehiclePlate.trim(),
+      guestPlate: form.vehiclePlate.trim() === 'NY · ' ? undefined : form.vehiclePlate.trim(),
       parkingStall: form.parkingStall,
       entryMethod: form.entryMethod,
       notes: form.notes.trim() || 'General visitor authorization.',
