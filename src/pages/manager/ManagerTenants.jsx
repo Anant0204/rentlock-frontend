@@ -425,25 +425,16 @@ export default function ManagerTenants() {
       </div>
 
       {!canAddTenants && (
-        <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-900">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold shrink-0">
-              <Lock className="w-4 h-4" />
-            </div>
-            <div>
-              <p className="font-bold">Admin RBAC Restriction: Tenant Enrollment Disabled</p>
-              <p className="text-[11px] text-amber-800 mt-0.5">
-                Your manager account ({user?.name || 'Sarah Jenkins'}) has been assigned <strong>View-Only</strong> rights for resident records. To enable adding tenants, update this permission in <strong>Platform Settings &gt; 4-Account Access &amp; RBAC</strong>.
-              </p>
-            </div>
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-center gap-3 text-xs text-amber-900">
+          <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold shrink-0">
+            <Lock className="w-4 h-4" />
           </div>
-          <button
-            type="button"
-            onClick={() => navigate('/settings')}
-            className="text-xs font-bold text-indigo-700 underline hover:text-indigo-900 shrink-0 cursor-pointer"
-          >
-            Manage in Admin RBAC &rarr;
-          </button>
+          <div>
+            <p className="font-bold">Admin RBAC Restriction: Tenant Enrollment Disabled</p>
+            <p className="text-[11px] text-amber-800 mt-0.5">
+              Your manager account ({user?.name || 'Sarah Jenkins'}) has been assigned <strong>View-Only</strong> rights for resident records. To enable adding tenants, contact your Primary Administrator (Robert King).
+            </p>
+          </div>
         </div>
       )}
 
