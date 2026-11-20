@@ -64,13 +64,13 @@ const createConnectedService = (endpoint, localGetter, fallbackList = []) => ({
   },
 });
 
-export const propertyService = createConnectedService('/properties', getProperties, mockProperties);
-export const unitService = createConnectedService('/units', getUnits, mockUnits);
-export const tenantService = createConnectedService('/tenants', getTenants, mockTenants);
-export const leaseService = createConnectedService('/leases', getLeases, mockLeases);
-export const invoiceService = createConnectedService('/invoices', getInvoices, mockInvoices);
-export const expenseService = createConnectedService('/expenses', getExpenses, mockExpenses);
-export const complaintService = createConnectedService('/maintenance', null, mockComplaints);
+export const propertyService = createConnectedService('/properties', getProperties, []);
+export const unitService = createConnectedService('/units', getUnits, []);
+export const tenantService = createConnectedService('/tenants', getTenants, []);
+export const leaseService = createConnectedService('/leases', getLeases, []);
+export const invoiceService = createConnectedService('/invoices', getInvoices, []);
+export const expenseService = createConnectedService('/expenses', getExpenses, []);
+export const complaintService = createConnectedService('/maintenance', null, []);
 export const ownerService = createConnectedService('/owners', getOwners, []);
 export const managerService = createConnectedService('/managers', getManagers, []);
 
@@ -82,13 +82,20 @@ export const reportService = {
     } catch (err) {
       void err;
     }
+    const props = getProperties().filter((p) => !p.archived);
+    const units = getUnits().filter((u) => !u.archived);
+    const occupied = units.filter((u) => u.status === 'Occupied').length;
+    const invs = getInvoices().filter((i) => i.status !== 'Voided');
+    const billed = invs.reduce((s, i) => s + (Number(i.amount) || Number(i.total) || 0), 0);
+    const collected = invs.reduce((s, i) => s + (Number(i.paidAmount) || Number(i.paid) || 0), 0);
+
     return {
-      portfolioProperties: 4,
-      totalUnits: 118,
-      occupiedUnits: 112,
-      occupancyRate: 94.9,
-      totalCollected: 234000,
-      totalReceivables: 18200,
+      portfolioProperties: props.length,
+      totalUnits: units.length,
+      occupiedUnits: occupied,
+      occupancyRate: units.length > 0 ? Number(((occupied / units.length) * 100).toFixed(1)) : 0,
+      totalCollected: collected,
+      totalReceivables: Math.max(0, billed - collected),
     };
   },
   getRevenueByMonth: async () => {
