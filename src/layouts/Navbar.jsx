@@ -19,7 +19,7 @@ import { ROLE_LABELS } from '../utils/constants';
 
 export default function Navbar() {
   const { toggleMobile } = useSidebar();
-  const { user, logout, switchRole } = useAuth();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { searchQuery, setSearchQuery } = useGlobalSearch();
   
@@ -46,16 +46,6 @@ export default function Navbar() {
   const handleLogout = async () => {
     await logout();
     navigate('/login');
-  };
-
-  const handleRoleSwitch = async (roleName) => {
-    try {
-      await switchRole(roleName);
-      setProfileOpen(false);
-      navigate('/dashboard');
-    } catch {
-      // ignore
-    }
   };
 
   const handleSearchChange = (e) => {
@@ -332,17 +322,8 @@ export default function Navbar() {
               <ChevronDown className="w-3.5 h-3.5 text-gray-400 hidden md:block" />
             </button>
             {profileOpen && (
-              <div className="absolute right-0 top-12 w-64 bg-white rounded-xl shadow-xl border border-gray-100 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-                <div className="p-4 bg-gradient-to-r from-[#4A6CF7] to-[#A855F7]">
-                  <div className="flex items-center gap-3">
-                    <Avatar name={user?.name} size="lg" />
-                    <div>
-                      <p className="text-sm font-semibold text-white">{user?.name}</p>
-                      <p className="text-xs text-white/70">{user?.email}</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="py-1.5">
+              <div className="absolute right-0 top-12 w-48 bg-white rounded-xl shadow-xl border border-gray-100 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                <div className="py-1">
                   <button
                     onClick={() => {
                       if (isManager) navigate('/manager/settings');
@@ -367,63 +348,6 @@ export default function Navbar() {
                   >
                     <Settings className="w-4 h-4 text-gray-400" /> Settings
                   </button>
-                </div>
-
-                {/* Fast Role Switcher for Client Demo */}
-                <div className="py-2.5 border-t border-gray-100 bg-gray-50/75 px-3">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2 px-1">
-                    Demo Role Switcher
-                  </p>
-                  <div className="grid grid-cols-2 gap-1.5 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => handleRoleSwitch('admin')}
-                      className={`px-2.5 py-1.5 rounded-lg text-left font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
-                        user?.role === 'admin'
-                          ? 'bg-indigo-600 text-white font-semibold shadow-sm'
-                          : 'bg-white hover:bg-gray-100 text-gray-700 border border-gray-200'
-                      }`}
-                    >
-                      <span>👑</span>
-                      <span className="truncate">Admin</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleRoleSwitch('owner')}
-                      className={`px-2.5 py-1.5 rounded-lg text-left font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
-                        user?.role === 'owner'
-                          ? 'bg-indigo-600 text-white font-semibold shadow-sm'
-                          : 'bg-white hover:bg-gray-100 text-gray-700 border border-gray-200'
-                      }`}
-                    >
-                      <span>🏢</span>
-                      <span className="truncate">Owner</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleRoleSwitch('manager')}
-                      className={`px-2.5 py-1.5 rounded-lg text-left font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
-                        user?.role === 'manager'
-                          ? 'bg-indigo-600 text-white font-semibold shadow-sm'
-                          : 'bg-white hover:bg-gray-100 text-gray-700 border border-gray-200'
-                      }`}
-                    >
-                      <span>📋</span>
-                      <span className="truncate">Manager</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleRoleSwitch('tenant')}
-                      className={`px-2.5 py-1.5 rounded-lg text-left font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
-                        user?.role === 'tenant'
-                          ? 'bg-indigo-600 text-white font-semibold shadow-sm'
-                          : 'bg-white hover:bg-gray-100 text-gray-700 border border-gray-200'
-                      }`}
-                    >
-                      <span>🔑</span>
-                      <span className="truncate">Tenant</span>
-                    </button>
-                  </div>
                 </div>
                 <div className="py-1.5 border-t border-gray-100">
                   <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors cursor-pointer">
