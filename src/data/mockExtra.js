@@ -55,14 +55,22 @@ export const addManager = (manager) => {
 };
 
 export const updateManager = (id, data) => {
+  const saved = localStorage.getItem('custom_managers');
+  const customItems = saved ? JSON.parse(saved) : [];
+  const existingIndex = customItems.findIndex((m) => String(m.id) === String(id));
+  const existing = existingIndex > -1 ? customItems[existingIndex] : null;
+  const merged = { ...(existing || {}), ...(data || {}) };
+
   if (data) {
     const payload = {
-      name: data.name,
-      email: data.email,
-      phone: data.phone,
-      password: data.password || 'demo123',
-      properties: data.properties || [],
-      assignedProperties: data.properties || [],
+      name: merged.name,
+      email: merged.email,
+      phone: merged.phone,
+      password: merged.password || 'demo123',
+      properties: merged.properties || [],
+      assignedProperties: merged.properties || [],
+      archived: merged.archived,
+      status: merged.status,
     };
     if (id && !isNaN(Number(id))) {
       apiClient.put(`/managers/${id}`, payload).catch(() => {
@@ -72,25 +80,22 @@ export const updateManager = (id, data) => {
       apiClient.post('/managers', payload).catch(() => {});
     }
 
-    if (Array.isArray(data.properties)) {
+    if (Array.isArray(merged.properties)) {
       try {
         const rawProps = localStorage.getItem('custom_properties');
         const propList = rawProps ? JSON.parse(rawProps) : [];
-        const assignedSet = new Set(data.properties.map((p) => String(p).trim().toLowerCase()));
+        const assignedSet = new Set(merged.properties.map((p) => String(p).trim().toLowerCase()));
         for (const p of propList) {
           if (p.id && (assignedSet.has(String(p.name).trim().toLowerCase()) || assignedSet.has(String(p.id)))) {
-            apiClient.put(`/properties/${p.id}`, { managerId: Number(id) || undefined, manager: data.name }).catch(() => {});
+            apiClient.put(`/properties/${p.id}`, { managerId: Number(id) || undefined, manager: merged.name }).catch(() => {});
           }
         }
       } catch {}
     }
   }
 
-  const saved = localStorage.getItem('custom_managers');
-  const customItems = saved ? JSON.parse(saved) : [];
-  const existingIndex = customItems.findIndex((m) => String(m.id) === String(id));
   if (existingIndex > -1) {
-    customItems[existingIndex] = { ...customItems[existingIndex], ...data };
+    customItems[existingIndex] = merged;
   } else {
     customItems.push({ id, ...data });
   }
@@ -98,16 +103,43 @@ export const updateManager = (id, data) => {
 };
 
 export const archiveManager = (id, archived = true) => {
-  updateManager(id, { archived, status: archived ? 'Archived' : 'Active' });
+  updateManager(id, { archived, status: archived ? 'Deactivated' : 'Active' });
 };
 
-export const deleteManager = (id) => {
+export const deleteManager = async (id, email) => {
+  if (id && !isNaN(Number(id))) {
+    await apiClient.delete(`/managers/${id}${email ? `?email=${encodeURIComponent(email)}` : ''}`).catch(() => {});
+  } else if (email) {
+    await apiClient.delete(`/managers/0?email=${encodeURIComponent(email)}`).catch(() => {});
+  }
+
   const saved = localStorage.getItem('custom_managers');
   if (saved) {
-    const customItems = JSON.parse(saved);
-    const updated = customItems.filter((m) => String(m.id) !== String(id));
-    localStorage.setItem('custom_managers', JSON.stringify(updated));
+    try {
+      const customItems = JSON.parse(saved);
+      const updated = customItems.filter((m) =>
+        String(m.id) !== String(id) &&
+        (!email || !m.email || m.email.toLowerCase() !== String(email).toLowerCase())
+      );
+      localStorage.setItem('custom_managers', JSON.stringify(updated));
+    } catch {}
   }
+
+  try {
+    const rawProps = localStorage.getItem('custom_properties');
+    if (rawProps) {
+      const props = JSON.parse(rawProps);
+      const updatedProps = props.map((p) => {
+        const matchId = p.managerId && String(p.managerId) === String(id);
+        const matchEmail = email && p.managerEmail && p.managerEmail.toLowerCase() === String(email).toLowerCase();
+        if (matchId || matchEmail) {
+          return { ...p, manager: 'Unassigned', managerId: null };
+        }
+        return p;
+      });
+      localStorage.setItem('custom_properties', JSON.stringify(updatedProps));
+    }
+  } catch {}
 };
 
 export const mockStaff = [];
