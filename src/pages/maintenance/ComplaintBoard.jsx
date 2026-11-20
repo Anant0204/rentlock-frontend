@@ -55,11 +55,6 @@ export default function ComplaintBoard() {
   }, [availableVendors]);
 
   const fetchWorkOrders = async () => {
-    let localWOs = [];
-    try {
-      localWOs = JSON.parse(localStorage.getItem('custom_work_orders_us') || '[]');
-    } catch {}
-
     try {
       const res = await apiClient.get('/maintenance?limit=100');
       const items = res?.items || res;
@@ -69,8 +64,8 @@ export default function ComplaintBoard() {
       } else if (localWOs.length > 0) {
         setWorkOrders(localWOs);
       }
-    } catch {
-      if (localWOs.length > 0) setWorkOrders(localWOs);
+    } catch (err) {
+      console.warn('Fetch work orders failed:', err);
     }
   };
 

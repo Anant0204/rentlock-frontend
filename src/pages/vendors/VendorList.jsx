@@ -40,7 +40,7 @@ const CATEGORY_ICONS = {
 };
 
 export default function VendorList() {
-  const [vendors, setVendors] = useState(() => getVendors());
+  const [vendors, setVendors] = useState([]);
   const [categories, setCategories] = useState(() => getServiceCategories());
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('All Categories');
@@ -72,20 +72,16 @@ export default function VendorList() {
         const localVendors = getVendors();
         const merged = items.map((dbV) => {
           const formattedId = `VND-${String(dbV.id).padStart(3, '0')}`;
-          const match = localVendors.find(
-            (lv) => String(lv.id) === String(dbV.id) || String(lv.id) === formattedId || (lv.name && lv.name.toLowerCase() === dbV.name.toLowerCase())
-          );
           return {
-            ...match,
             ...dbV,
             id: formattedId,
             dbId: dbV.id,
-            contactPerson: match?.contactPerson || dbV.contactPerson || 'Jonny Plumber',
-            rating: match?.rating || 5.0,
-            openWorkOrders: match?.openWorkOrders || 0,
-            ytdSpend: match?.ytdSpend || 0,
-            paymentMethod: match?.paymentMethod || 'ACH Bank Transfer',
-            coiStatus: dbV.coiVerified ? 'Valid' : (match?.coiStatus || 'Valid'),
+            contactPerson: dbV.contactPerson || 'Jonny Plumber',
+            rating: 5.0,
+            openWorkOrders: 0,
+            ytdSpend: 0,
+            paymentMethod: dbV.paymentMethod || 'ACH Bank Transfer',
+            coiStatus: dbV.coiVerified ? 'Valid' : 'Valid',
           };
         });
         setVendors(merged);

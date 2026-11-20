@@ -91,8 +91,8 @@ export default function VisitorList() {
     return { total, onSite, preRegistered, departed };
   }, [visitors]);
 
-  const handleCheckout = (visitorId, guestName) => {
-    const updated = checkoutVisitor(visitorId);
+  const handleCheckout = async (visitorId, guestName) => {
+    const updated = await checkoutVisitor(visitorId);
     setVisitors(updated);
     toast.success(`${guestName} checked out successfully.`);
   };
@@ -100,15 +100,17 @@ export default function VisitorList() {
   const handleCheckInPreRegistered = (visitorId, guestName) => {
     const current = getVisitors();
     const updated = current.map((v) => {
-      if (v.id === visitorId) {
+      if (String(v.id) === String(visitorId) || v.passCode === visitorId || v.passId === visitorId) {
         return {
           ...v,
           status: 'On-Site · Active Pass',
+          isCheckedIn: true,
           checkInTime: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
         };
       }
       return v;
     });
+    saveVisitors(updated);
     setVisitors(updated);
     toast.success(`${guestName} checked in and pass activated.`);
   };
@@ -148,11 +150,14 @@ export default function VisitorList() {
     const updated = await logVisitor({
       guestName: form.guestName.trim(),
       phone: form.phone.trim() || '—',
+      guestPhone: form.phone.trim() || undefined,
       hostResident: form.hostResident,
+      hostTenantId: matchedTenant?.id || 1,
       unitNumber: form.unitNumber,
       propertyName: form.propertyName,
       expectedDate: form.expectedDate,
       vehiclePlate: form.vehiclePlate.trim() === 'NY · ' ? 'No Vehicle' : form.vehiclePlate.trim(),
+      guestPlate: form.vehiclePlate.trim() === 'NY · ' ? undefined : form.vehiclePlate.trim(),
       parkingStall: form.parkingStall,
       entryMethod: form.entryMethod,
       notes: form.notes.trim() || 'General visitor authorization.',

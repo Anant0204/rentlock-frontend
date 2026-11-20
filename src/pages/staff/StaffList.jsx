@@ -36,7 +36,7 @@ const DEPARTMENT_ICONS = {
 };
 
 export default function StaffList() {
-  const [staff, setStaff] = useState(() => getStaff());
+  const [staff, setStaff] = useState([]);
   const [departments, setDepartments] = useState(() => getDepartments());
   const [isDeptModalOpen, setIsDeptModalOpen] = useState(false);
   const [newDeptInput, setNewDeptInput] = useState('');
@@ -94,18 +94,9 @@ export default function StaffList() {
     // 2. Fetch live staff from backend
     apiClient.get('/operations/staff').then((res) => {
       const items = res?.items || res;
-      if (Array.isArray(items) && items.length > 0) {
-        const local = getStaff();
-        const mergedMap = new Map();
-        items.forEach((item) => mergedMap.set(String(item.id), item));
-        local.forEach((item) => {
-          if (!mergedMap.has(String(item.id))) {
-            mergedMap.set(String(item.id), item);
-          }
-        });
-        const combined = Array.from(mergedMap.values());
-        setStaff(combined);
-        saveStaff(combined);
+      if (Array.isArray(items)) {
+        setStaff(items);
+        saveStaff(items);
       }
     }).catch(() => {});
 
