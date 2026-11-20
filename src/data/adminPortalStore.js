@@ -53,7 +53,7 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     canDeleteTenants: false,
     canViewTenantPII: false,
     canViewProperties: true,
-    canAddProperties: false,
+    canAddProperties: true,
     canEditProperties: false,
     canDeleteProperties: false,
     canAssignManagers: true,
@@ -128,8 +128,8 @@ export const PERMISSION_DEFINITIONS = [
       {
         key: 'canAddProperties',
         label: 'Register New Properties',
-        desc: 'Can onboard new real estate buildings into the portfolio.',
-        roles: ['admin', 'owner', 'manager'],
+        desc: 'Can onboard new real estate buildings into the portfolio (Owner & Admin only).',
+        roles: ['admin', 'owner'],
       },
       {
         key: 'canEditProperties',
@@ -610,13 +610,47 @@ export const getUserEffectivePermissions = (userOrKey) => {
   const basePermissions = rolePermissions[role] || DEFAULT_ROLE_PERMISSIONS[role] || DEFAULT_ROLE_PERMISSIONS.manager;
   const customOverride = email && userPermissions[email] ? userPermissions[email] : null;
 
-  return {
+  const resolved = {
     ...basePermissions,
     ...(customOverride || {}),
     isCustomOverride: !!customOverride,
     role,
     userKey: email || role,
   };
+
+  // Role-based capability boundaries
+  if (role === 'manager' || (email && email.includes('manager'))) {
+    resolved.canAddProperties = false;
+    resolved.canDeleteProperties = false;
+    resolved.canDeleteTenants = false;
+  } else if (role === 'owner' || (email && email.includes('owner'))) {
+    resolved.canAddProperties = true;
+    resolved.canDeleteProperties = false;
+    resolved.canEditProperties = false;
+    resolved.canAddTenants = false;
+    resolved.canEditTenants = false;
+    resolved.canDeleteTenants = false;
+  } else if (role === 'tenant' || (email && email.includes('tenant'))) {
+    resolved.canViewTenants = false;
+    resolved.canAddTenants = false;
+    resolved.canEditTenants = false;
+    resolved.canDeleteTenants = false;
+    resolved.canViewProperties = false;
+    resolved.canAddProperties = false;
+    resolved.canEditProperties = false;
+    resolved.canDeleteProperties = false;
+  } else if (role === 'admin') {
+    resolved.canViewTenants = true;
+    resolved.canAddTenants = true;
+    resolved.canEditTenants = true;
+    resolved.canDeleteTenants = true;
+    resolved.canViewProperties = true;
+    resolved.canAddProperties = true;
+    resolved.canEditProperties = true;
+    resolved.canDeleteProperties = true;
+  }
+
+  return resolved;
 };
 
 export const hasUserPermission = (userOrKey, permissionKey) => {
@@ -624,9 +658,37 @@ export const hasUserPermission = (userOrKey, permissionKey) => {
   return perms[permissionKey];
 };
 
+export const sanitizeRolePermissions = (roleOrEmail, perms) => {
+  const clean = { ...perms };
+  const r = (roleOrEmail || '').toLowerCase();
+  if (r === 'manager' || r.includes('manager')) {
+    clean.canAddProperties = false;
+    clean.canDeleteProperties = false;
+    clean.canDeleteTenants = false;
+  } else if (r === 'owner' || r.includes('owner')) {
+    clean.canAddProperties = true;
+    clean.canDeleteProperties = false;
+    clean.canEditProperties = false;
+    clean.canAddTenants = false;
+    clean.canEditTenants = false;
+    clean.canDeleteTenants = false;
+  } else if (r === 'tenant' || r.includes('tenant')) {
+    clean.canViewTenants = false;
+    clean.canAddTenants = false;
+    clean.canEditTenants = false;
+    clean.canDeleteTenants = false;
+    clean.canViewProperties = false;
+    clean.canAddProperties = false;
+    clean.canEditProperties = false;
+    clean.canDeleteProperties = false;
+  }
+  return clean;
+};
+
 export const saveUserPermissions = (userKey, permissions, reason = 'Updated user permissions via Admin RBAC') => {
   const cleanKey = (userKey || '').trim().toLowerCase();
-  apiClient.put(`/settings/rbac/user/${cleanKey}`, { permissions, reason }).catch(() => {});
+  const sanitizedPerms = sanitizeRolePermissions(cleanKey, permissions);
+  apiClient.put(`/settings/rbac/user/${cleanKey}`, { permissions: sanitizedPerms, reason }).catch(() => {});
   return updateAdminPortalState((prev) => {
     const existingUsers = prev.userPermissions || {};
     return {
@@ -635,7 +697,7 @@ export const saveUserPermissions = (userKey, permissions, reason = 'Updated user
         ...existingUsers,
         [cleanKey]: {
           ...(existingUsers[cleanKey] || {}),
-          ...permissions,
+          ...sanitizedPerms,
         },
       },
       auditLogs: [
@@ -695,6 +757,7 @@ export const resetUserToRoleDefault = (userKey, reason = 'Reset user permissions
 
 export const saveRoleTierPermissions = (role, permissions, reason = 'Updated Role Tier Default Permissions') => {
   const cleanRole = (role || 'manager').toLowerCase();
+  const sanitizedPerms = sanitizeRolePermissions(cleanRole, permissions);
   return updateAdminPortalState((prev) => {
     const existingRoles = prev.rolePermissions || DEFAULT_ROLE_PERMISSIONS;
     return {
@@ -703,7 +766,7 @@ export const saveRoleTierPermissions = (role, permissions, reason = 'Updated Rol
         ...existingRoles,
         [cleanRole]: {
           ...(existingRoles[cleanRole] || {}),
-          ...permissions,
+          ...sanitizedPerms,
         },
       },
       auditLogs: [
