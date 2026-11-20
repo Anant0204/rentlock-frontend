@@ -13,7 +13,7 @@ import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
 import apiClient from '../../services/apiClient';
-import { getVisitors, logVisitor, checkoutVisitor } from '../../data/mockOperations';
+import { getVisitors, saveVisitors, logVisitor, checkoutVisitor } from '../../data/mockOperations';
 import { getTenants } from '../../data/mockTenants';
 
 const TABS = [
@@ -24,20 +24,28 @@ const TABS = [
 ];
 
 export default function VisitorList() {
-  const [visitors, setVisitors] = useState(() => getVisitors());
+  const [visitors, setVisitors] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
   const [selectedPass, setSelectedPass] = useState(null);
 
   useEffect(() => {
-    apiClient.get('/operations/visitors').then((res) => {
-      const items = res?.items || res;
-      if (Array.isArray(items)) {
-        setVisitors(items);
-        localStorage.setItem('custom_visitors', JSON.stringify(items));
-      }
-    }).catch(() => {});
+    apiClient.get('/operations/visitors')
+      .then((res) => {
+        const items = res?.items || res;
+        if (Array.isArray(items)) {
+          setVisitors(items);
+          saveVisitors(items);
+        }
+      })
+      .catch(() => {
+        setVisitors(getVisitors());
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, []);
 
   const tenants = useMemo(() => getTenants(), []);
@@ -131,13 +139,13 @@ export default function VisitorList() {
     }));
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.guestName.trim()) {
       toast.error('Guest name is required.');
       return;
     }
-    const updated = logVisitor({
+    const updated = await logVisitor({
       guestName: form.guestName.trim(),
       phone: form.phone.trim() || '—',
       hostResident: form.hostResident,
@@ -246,7 +254,16 @@ export default function VisitorList() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 bg-white">
-              {filtered.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={6} className="py-12 text-center text-gray-400">
+                    <div className="inline-flex items-center gap-2">
+                      <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                      <span>Loading visitor passes...</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : filtered.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-10 text-center text-gray-400">
                     No visitor records found matching your filters.

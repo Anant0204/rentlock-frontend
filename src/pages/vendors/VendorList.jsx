@@ -61,7 +61,14 @@ export default function VendorList() {
     // 1. Fetch vendors
     apiClient.get('/operations/vendors').then((res) => {
       const items = res?.items || res;
-      if (Array.isArray(items) && items.length > 0) {
+      if (Array.isArray(items)) {
+        if (items.length === 0) {
+          setVendors([]);
+          localStorage.setItem('custom_vendors', JSON.stringify([]));
+          localStorage.setItem('pm_vendors', JSON.stringify([]));
+          try { window.dispatchEvent(new Event('rentlock_vendors_changed')); } catch {}
+          return;
+        }
         const localVendors = getVendors();
         const merged = items.map((dbV) => {
           const formattedId = `VND-${String(dbV.id).padStart(3, '0')}`;
@@ -84,6 +91,7 @@ export default function VendorList() {
         setVendors(merged);
         localStorage.setItem('custom_vendors', JSON.stringify(merged));
         localStorage.setItem('pm_vendors', JSON.stringify(merged));
+        try { window.dispatchEvent(new Event('rentlock_vendors_changed')); } catch {}
       }
     }).catch(() => {});
 
