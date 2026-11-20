@@ -113,6 +113,7 @@ const RBAC_CATEGORIES = [
     title: 'Tenants Access Control',
     subtitle: 'Manage permissions to View, Add, Edit, and Remove tenant & resident records',
     icon: Users,
+    viewKey: 'canViewTenants',
     items: [
       {
         key: 'canViewTenants',
@@ -146,6 +147,7 @@ const RBAC_CATEGORIES = [
     title: 'Properties Access Control',
     subtitle: 'Manage permissions to View, Add, Edit, and Remove portfolio properties & units',
     icon: Building2,
+    viewKey: 'canViewProperties',
     items: [
       {
         key: 'canViewProperties',
@@ -252,11 +254,27 @@ export default function SettingsPage() {
   }, [managersList, ownersList]);
 
   // Granular RBAC State
+  const sanitizePerms = (perms) => {
+    if (!perms) return perms;
+    const clean = { ...perms };
+    if (!clean.canViewTenants) {
+      clean.canAddTenants = false;
+      clean.canEditTenants = false;
+      clean.canDeleteTenants = false;
+    }
+    if (!clean.canViewProperties) {
+      clean.canAddProperties = false;
+      clean.canEditProperties = false;
+      clean.canDeleteProperties = false;
+    }
+    return clean;
+  };
+
   const [rbacConfigMode, setRbacConfigMode] = useState('specific_user'); // 'specific_user' | 'role_tier'
   const [selectedUserKey, setSelectedUserKey] = useState('sarah.jenkins@rentlock.com');
   const [selectedRoleTier, setSelectedRoleTier] = useState('manager');
   const [permsDraft, setPermsDraft] = useState(() => {
-    return getUserEffectivePermissions('sarah.jenkins@rentlock.com');
+    return sanitizePerms(getUserEffectivePermissions('sarah.jenkins@rentlock.com'));
   });
 
   const [isRbacModalOpen, setIsRbacModalOpen] = useState(false);
@@ -289,21 +307,41 @@ export default function SettingsPage() {
   const handleSelectUser = (emailKey) => {
     setSelectedUserKey(emailKey);
     const perms = getUserEffectivePermissions(emailKey);
-    setPermsDraft(perms);
+    setPermsDraft(sanitizePerms(perms));
   };
 
   const handleSelectRoleTier = (roleKey) => {
     setSelectedRoleTier(roleKey);
     const state = getAdminPortalState();
     const rolePerms = state.rolePermissions?.[roleKey] || DEFAULT_ROLE_PERMISSIONS[roleKey];
-    setPermsDraft({ ...rolePerms, role: roleKey, spendingCap: rolePerms.spendingCap || 0 });
+    setPermsDraft(sanitizePerms({ ...rolePerms, role: roleKey, spendingCap: rolePerms.spendingCap || 0 }));
   };
 
   const handleTogglePerm = (key) => {
-    setPermsDraft((prev) => ({
-      ...prev,
-      [key]: !prev[key],
-    }));
+    setPermsDraft((prev) => {
+      const nextVal = !prev[key];
+      const updated = {
+        ...prev,
+        [key]: nextVal,
+      };
+
+      // Hierarchical RBAC rules:
+      // If View Tenants is turned OFF, automatically restrict Add, Edit, and Delete for Tenants
+      if (key === 'canViewTenants' && !nextVal) {
+        updated.canAddTenants = false;
+        updated.canEditTenants = false;
+        updated.canDeleteTenants = false;
+      }
+
+      // If View Properties is turned OFF, automatically restrict Add, Edit, and Delete for Properties
+      if (key === 'canViewProperties' && !nextVal) {
+        updated.canAddProperties = false;
+        updated.canEditProperties = false;
+        updated.canDeleteProperties = false;
+      }
+
+      return updated;
+    });
   };
 
   const handleResetUserToDefault = () => {
@@ -313,7 +351,7 @@ export default function SettingsPage() {
     );
     setPortalState(next);
     const refreshed = getUserEffectivePermissions(selectedUserKey);
-    setPermsDraft(refreshed);
+    setPermsDraft(sanitizePerms(refreshed));
     toast.success(`Reset ${currentSelectedUser?.name || selectedUserKey} to default role permissions.`);
   };
 
@@ -821,6 +859,8 @@ export default function SettingsPage() {
               {/* Grouped Permission Cards */}
               <div className="space-y-5">
                 {visibleCategories.map((cat) => {
+                  const isViewAllowed = cat.viewKey ? !!permsDraft[cat.viewKey] : true;
+                  const visibleItems = cat.items.filter((item) => item.key === cat.viewKey || isViewAllowed);
                   const activeCount = cat.items.filter((item) => !!permsDraft[item.key]).length;
                   const isAllActive = activeCount === cat.items.length;
                   const isNoneActive = activeCount === 0;
@@ -864,7 +904,7 @@ export default function SettingsPage() {
 
                       {/* Divided Rows of Permissions */}
                       <div className="divide-y divide-gray-100">
-                        {cat.items.map((item) => {
+                        {visibleItems.map((item) => {
                           const isAllowed = !!permsDraft[item.key];
                           const ItemIcon = item.icon || Shield;
 
@@ -931,6 +971,13 @@ export default function SettingsPage() {
                           );
                         })}
                       </div>
+
+                      {!isViewAllowed && (
+                        <div className="p-4 bg-gray-50/80 border-t border-gray-100 flex items-center justify-center gap-2 text-xs text-gray-500">
+                          <Lock className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                          <span>View access is restricted. Add, Edit, and Remove capabilities are hidden and locked.</span>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -938,7 +985,7 @@ export default function SettingsPage() {
             </div>
 
             {/* Platform Security & Session Guardrails Card */}
-            <div className="p-4 sm:p-5 rounded-2xl border border-gray-200 bg-white space-y-4">
+            {/* <div className="p-4 sm:p-5 rounded-2xl border border-gray-200 bg-white space-y-4">
               <div className="flex items-center gap-2.5 pb-2 border-b border-gray-100">
                 <KeyRound className="w-4 h-4 text-indigo-600" />
                 <div>
@@ -971,7 +1018,7 @@ export default function SettingsPage() {
                   />
                 </div>
               </div>
-            </div>
+            </div> */}
 
             {/* Save Permissions Action Bar */}
             <div className="p-4 rounded-2xl bg-gradient-to-r from-gray-50 via-white to-indigo-50/40 border border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-3">
