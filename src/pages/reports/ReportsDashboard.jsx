@@ -12,11 +12,6 @@ import StatCard from '../../components/shared/StatCard';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import Select from '../../components/ui/Select';
-import { getProperties } from '../../data/mockProperties';
-import { getUnits } from '../../data/mockUnits';
-import { getInvoices } from '../../data/mockInvoices';
-import { mockComplaints } from '../../data/mockExtra';
-import { getExpenses } from '../expenses/mockExpenses';
 import { formatUsd, formatDate } from '../../utils/formatters';
 
 const CORE_REPORTS = [
@@ -33,17 +28,12 @@ export default function ReportsDashboard() {
   const [asOfDate, setAsOfDate] = useState('2026-11-11');
   const [activeReport, setActiveReport] = useState('rent-roll');
 
-  const [properties, setProperties] = useState(() => getProperties().filter((p) => !p.archived));
-  const [units, setUnits] = useState(() => getUnits().filter((u) => !u.archived));
-  const [invoices, setInvoices] = useState(() => getInvoices().filter((i) => i.status !== 'Voided'));
-  const [expenses, setExpenses] = useState(() => getExpenses().filter((e) => e.status !== 'Voided'));
-  const [workOrders, setWorkOrders] = useState(() => {
-    const saved = localStorage.getItem('custom_work_orders_us');
-    if (saved) {
-      try { return JSON.parse(saved); } catch { return mockComplaints || []; }
-    }
-    return mockComplaints || [];
-  });
+  const [properties, setProperties] = useState([]);
+  const [units, setUnits] = useState([]);
+  const [invoices, setInvoices] = useState([]);
+  const [expenses, setExpenses] = useState([]);
+  const [leases, setLeases] = useState([]);
+  const [workOrders, setWorkOrders] = useState([]);
   const [backendSummary, setBackendSummary] = useState(null);
   const [revenueByMonth, setRevenueByMonth] = useState([]);
 
@@ -58,7 +48,7 @@ export default function ReportsDashboard() {
     // 2. Fetch live properties from backend DB
     apiClient.get('/properties?limit=100').then((res) => {
       const items = res?.items || res;
-      if (Array.isArray(items) && items.length > 0) {
+      if (Array.isArray(items)) {
         setProperties(items.filter((p) => !p.archived));
       }
     }).catch(() => {});
@@ -66,7 +56,7 @@ export default function ReportsDashboard() {
     // 3. Fetch live units from backend DB
     apiClient.get('/units?limit=100').then((res) => {
       const items = res?.items || res;
-      if (Array.isArray(items) && items.length > 0) {
+      if (Array.isArray(items)) {
         setUnits(items.filter((u) => !u.archived));
         localStorage.setItem('custom_units', JSON.stringify(items));
       }
@@ -88,6 +78,14 @@ export default function ReportsDashboard() {
       }
     }).catch(() => {});
 
+    // 5b. Fetch live leases from backend DB
+    apiClient.get('/leases?limit=100').then((res) => {
+      const items = res?.items || res;
+      if (Array.isArray(items)) {
+        setLeases(items.filter((l) => !l.archived && l.status !== 'Archived'));
+      }
+    }).catch(() => {});
+
     // 6. Fetch live maintenance tickets from backend DB
     apiClient.get('/maintenance').then((items) => {
       if (Array.isArray(items)) {
@@ -103,29 +101,39 @@ export default function ReportsDashboard() {
     }).catch(() => {});
   }, []);
 
+  const selectedProp = useMemo(() => {
+    if (!propertyFilter || propertyFilter === 'All') return null;
+    return properties.find((p) => p.name === propertyFilter);
+  }, [propertyFilter, properties]);
+
   const scopedProps = useMemo(
     () => (propertyFilter === 'All' ? properties : properties.filter((p) => p.name === propertyFilter)),
     [properties, propertyFilter]
   );
 
   const scopedUnits = useMemo(
-    () => (propertyFilter === 'All' ? units : units.filter((u) => (u.propertyName || u.property?.name) === propertyFilter)),
-    [units, propertyFilter]
+    () => (propertyFilter === 'All' ? units : units.filter((u) => (u.propertyName || u.property?.name) === propertyFilter || (selectedProp && u.propertyId === selectedProp.id))),
+    [units, propertyFilter, selectedProp]
   );
 
   const scopedInvoices = useMemo(
-    () => (propertyFilter === 'All' ? invoices : invoices.filter((i) => (i.propertyName || i.property?.name) === propertyFilter)),
-    [invoices, propertyFilter]
+    () => (propertyFilter === 'All' ? invoices : invoices.filter((i) => (i.propertyName || i.property?.name) === propertyFilter || (selectedProp && i.propertyId === selectedProp.id))),
+    [invoices, propertyFilter, selectedProp]
   );
 
   const scopedExpenses = useMemo(
-    () => (propertyFilter === 'All' ? expenses : expenses.filter((e) => (e.propertyName || e.property?.name) === propertyFilter)),
-    [expenses, propertyFilter]
+    () => (propertyFilter === 'All' ? expenses : expenses.filter((e) => (e.propertyName || e.property?.name) === propertyFilter || (selectedProp && e.propertyId === selectedProp.id))),
+    [expenses, propertyFilter, selectedProp]
+  );
+
+  const scopedLeases = useMemo(
+    () => (propertyFilter === 'All' ? leases : leases.filter((l) => (l.propertyName || l.property?.name) === propertyFilter || (selectedProp && l.propertyId === selectedProp.id))),
+    [leases, propertyFilter, selectedProp]
   );
 
   const scopedWorkOrders = useMemo(
-    () => (propertyFilter === 'All' ? workOrders : workOrders.filter((w) => (w.property?.name || w.propertyName || w.property) === propertyFilter)),
-    [workOrders, propertyFilter]
+    () => (propertyFilter === 'All' ? workOrders : workOrders.filter((w) => (w.property?.name || w.propertyName || w.property) === propertyFilter || (selectedProp && w.propertyId === selectedProp.id))),
+    [workOrders, propertyFilter, selectedProp]
   );
 
   // Live KPI Summary
@@ -161,6 +169,10 @@ export default function ReportsDashboard() {
       }
     }
 
+    if (occUnits === 0 && invoiceCollected === 0 && invoiceBilled === 0 && (!backendSummary || Number(backendSummary?.totalBilled || 0) === 0)) {
+      totalRevenue = 0;
+    }
+
     // Operating Expenses Calculation
     let totalExpenses = scopedExpenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
     if (propertyFilter === 'All' && backendSummary?.totalExpenses) {
@@ -178,44 +190,65 @@ export default function ReportsDashboard() {
       case 'rent-roll':
         return {
           cols: ['Unit', 'Property', 'Resident / Tenant', 'Status', 'Monthly Rent', 'Security Deposit'],
-          rows: scopedUnits.map((u) => [
-            u.unitNumber,
-            u.propertyName || u.property?.name || propertyFilter,
-            u.tenantName || u.tenant?.name || u.tenant || 'Vacant',
-            u.status || 'Vacant',
-            formatUsd(Number(u.rent || u.rentAmount || 0)),
-            formatUsd(Number(u.deposit || u.depositAmount || u.rent || 0)),
-          ]),
+          rows: scopedUnits.map((u) => {
+            const unitLease = scopedLeases.find((l) => (Number(l.unitId) === Number(u.id) || String(l.unitNumber) === String(u.unitNumber)) && l.status !== 'Terminated' && l.status !== 'Archived');
+            const tenantName = unitLease?.tenantName || unitLease?.tenant?.name || u.tenants?.[0]?.name || u.tenantName || u.tenant || (u.status === 'Occupied' ? 'Active Resident' : 'Vacant');
+            const monthlyRent = Number(unitLease?.monthlyRent || unitLease?.rent || u.rentAmount || u.rent || 0);
+            const deposit = Number(unitLease?.securityDeposit || unitLease?.deposit || u.depositAmount || u.deposit || 0);
+
+            return [
+              u.unitNumber,
+              u.propertyName || u.property?.name || propertyFilter,
+              tenantName,
+              u.status || (unitLease ? 'Occupied' : 'Vacant'),
+              formatUsd(monthlyRent),
+              formatUsd(deposit),
+            ];
+          }),
         };
 
       case 'pnl': {
-        const months = [
-          { label: 'Jun 2026', factor: 0.95 },
-          { label: 'Jul 2026', factor: 0.98 },
-          { label: 'Aug 2026', factor: 1.0 },
-          { label: 'Sep 2026', factor: 1.0 },
-          { label: 'Oct 2026', factor: 1.02 },
-          { label: 'Nov 2026', factor: 1.0 },
-        ];
-
-        const pnlRows = months.map((m, idx) => {
-          const backendMonth = revenueByMonth[idx];
+        const monthNames = ['Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov'];
+        const pnlRows = monthNames.map((mName, idx) => {
+          const monthLabel = `${mName} 2026`;
           let monthRev = 0;
           let monthExp = 0;
+
+          const backendMonth = revenueByMonth.find((b) => b.month && b.month.includes(mName)) || revenueByMonth[idx];
 
           if (backendMonth && propertyFilter === 'All') {
             monthRev = Math.round(Number(basis === 'Cash' ? (backendMonth.collected || backendMonth.revenue) : (backendMonth.billed || backendMonth.revenue)) || 0);
             monthExp = Math.round(Number(backendMonth.expenses) || 0);
           } else {
-            monthRev = Math.round(summary.totalRevenue * m.factor);
-            monthExp = Math.round(summary.totalExpenses * m.factor);
+            const monthInvs = scopedInvoices.filter((i) => {
+              const d = i.paidAt || i.dueDate || i.createdAt;
+              if (!d) return false;
+              const dateObj = new Date(d);
+              return !isNaN(dateObj.getTime()) && dateObj.toLocaleString('en-US', { month: 'short' }) === mName;
+            });
+            const monthExps = scopedExpenses.filter((e) => {
+              const d = e.date || e.dueDate || e.createdAt;
+              if (!d) return false;
+              const dateObj = new Date(d);
+              return !isNaN(dateObj.getTime()) && dateObj.toLocaleString('en-US', { month: 'short' }) === mName;
+            });
+
+            if (monthInvs.length > 0) {
+              monthRev = monthInvs.reduce((s, i) => s + (basis === 'Cash' ? (Number(i.paidAmount) || 0) : (Number(i.amount) || 0)), 0);
+            } else if (scopedUnits.some((u) => u.status === 'Occupied')) {
+              monthRev = scopedUnits.filter((u) => u.status === 'Occupied').reduce((s, u) => s + (Number(u.rent || u.rentAmount || 0)), 0);
+            } else {
+              monthRev = 0;
+            }
+
+            monthExp = monthExps.reduce((s, e) => s + (Number(e.amount) || 0), 0);
           }
 
           const net = monthRev - monthExp;
           const margin = monthRev > 0 ? ((net / monthRev) * 100).toFixed(1) : '0.0';
 
           return [
-            m.label,
+            monthLabel,
             formatUsd(monthRev),
             formatUsd(monthExp),
             formatUsd(net),
@@ -311,7 +344,7 @@ export default function ReportsDashboard() {
           ]),
         };
     }
-  }, [activeReport, propertyFilter, basis, scopedUnits, scopedInvoices, scopedExpenses, scopedWorkOrders, revenueByMonth, summary]);
+  }, [activeReport, propertyFilter, basis, scopedUnits, scopedInvoices, scopedExpenses, scopedLeases, scopedWorkOrders, revenueByMonth, summary]);
 
   const handleExport = (fmt) => {
     if (fmt === 'CSV' || fmt === 'Excel') {
