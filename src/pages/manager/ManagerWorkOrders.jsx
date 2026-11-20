@@ -47,6 +47,7 @@ export default function ManagerWorkOrders() {
     refreshLocal();
     window.addEventListener('focus', refreshLocal);
     window.addEventListener('storage', refreshLocal);
+    window.addEventListener('rentlock_work_orders_changed', refreshLocal);
 
     apiClient.get('/maintenance?limit=100').then((res) => {
       const liveTickets = res?.items || res;
@@ -98,6 +99,7 @@ export default function ManagerWorkOrders() {
     return () => {
       window.removeEventListener('focus', refreshLocal);
       window.removeEventListener('storage', refreshLocal);
+      window.removeEventListener('rentlock_work_orders_changed', refreshLocal);
     };
   }, []);
 
@@ -546,7 +548,10 @@ export default function ManagerWorkOrders() {
                           {wo.id} · {wo.title}
                         </td>
                         <td className="py-3.5 px-4 text-gray-600">
-                          {wo.unit} · {wo.shortProperty}
+                          Unit {wo.unit || wo.unitNumber} · {wo.propertyName || wo.shortProperty}
+                          {(wo.residentName || wo.tenantName) && (
+                            <span className="block text-xs text-gray-400 font-medium">Resident: {wo.residentName || wo.tenantName}</span>
+                          )}
                         </td>
                         <td className="py-3.5 px-4">
                           <Badge
@@ -618,17 +623,34 @@ export default function ManagerWorkOrders() {
 
               <div className="pt-3 border-t border-gray-100">
                 <p className="text-sm font-bold text-gray-900">
-                  {selectedWO.tenantName} · {selectedWO.unit}
+                  {selectedWO.tenantName || selectedWO.residentName} · Unit {selectedWO.unit || selectedWO.unitNumber}
                 </p>
-                <p className="text-xs text-gray-500">{selectedWO.propertyName}</p>
+                <p className="text-xs text-gray-500">{selectedWO.propertyName || selectedWO.shortProperty}</p>
               </div>
 
               <div>
                 <p className="text-xs font-bold text-gray-700">Tenant report</p>
-                <p className="text-xs text-gray-600 mt-1 leading-relaxed">
-                  {selectedWO.report}
+                <p className="text-xs text-gray-600 mt-1 leading-relaxed whitespace-pre-wrap">
+                  {selectedWO.report || selectedWO.description}
                 </p>
               </div>
+
+              {Array.isArray(selectedWO.photos || selectedWO.attachments) &&
+                (selectedWO.photos || selectedWO.attachments).length > 0 && (
+                  <div>
+                    <p className="text-xs font-bold text-gray-700 mb-1.5">Attached Photos</p>
+                    <div className="flex flex-wrap gap-2">
+                      {(selectedWO.photos || selectedWO.attachments).map((p, idx) => (
+                        <img
+                          key={idx}
+                          src={p.url || p}
+                          alt="Photo"
+                          className="w-16 h-16 object-cover rounded-xl border border-gray-200"
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
 
               <div>
                 <p className="text-xs font-bold text-gray-700">Vendor estimate</p>

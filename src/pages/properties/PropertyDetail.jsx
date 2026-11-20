@@ -427,9 +427,10 @@ export default function PropertyDetail() {
   const handleAddUnitInModal = async () => {
     const unitNum = (newUnitForm.unitNumber || '').trim() || `Unit-${propertyUnits.length + 101}`;
     const floorNum = Number(newUnitForm.floor) || 1;
-    const bedsNum = Number(newUnitForm.beds) || 2;
-    const bathsNum = Number(newUnitForm.baths) || 1;
-    const sizeNum = Number(newUnitForm.size) || 900;
+    const bedsRaw = String(newUnitForm.beds ?? '').trim().toLowerCase();
+    const bedsNum = (bedsRaw === 'studio' || bedsRaw === '0') ? 0 : (!isNaN(Number(newUnitForm.beds)) && newUnitForm.beds !== '' ? Number(newUnitForm.beds) : 1);
+    const bathsNum = !isNaN(Number(newUnitForm.baths)) && newUnitForm.baths !== '' ? Number(newUnitForm.baths) : 1;
+    const sizeNum = Number(newUnitForm.size) || (bedsNum > 0 ? bedsNum * 400 + 200 : 500);
     const rentNum = Number(newUnitForm.rent) || 2100;
 
     const unitPayload = {
@@ -439,7 +440,7 @@ export default function PropertyDetail() {
       floor: floorNum,
       beds: bedsNum,
       baths: bathsNum,
-      bhk: `${bedsNum} BD / ${bathsNum} BA`,
+      bhk: bedsNum === 0 ? `Studio / ${bathsNum} BA` : `${bedsNum} BD / ${bathsNum} BA`,
       size: sizeNum,
       sqft: sizeNum,
       rent: rentNum,
@@ -459,7 +460,13 @@ export default function PropertyDetail() {
     const numPart = parseInt(unitNum.replace(/\D/g, ''), 10);
     const prefix = unitNum.replace(/[0-9]/g, '') || 'Unit-';
     const nextNum = !isNaN(numPart) ? `${prefix}${numPart + 1}` : `Unit-${propertyUnits.length + 102}`;
-    setNewUnitForm((prev) => ({ ...prev, unitNumber: nextNum }));
+    setNewUnitForm((prev) => ({
+      ...prev,
+      unitNumber: nextNum,
+      beds: '',
+      baths: '',
+      rent: '',
+    }));
 
     toast.success(`Unit ${unitNum} added!`);
   };
@@ -972,15 +979,21 @@ export default function PropertyDetail() {
                     value={newUnitForm.floor}
                     onChange={(e) => setNewUnitForm({ ...newUnitForm, floor: e.target.value })}
                   />
-                  <Select
+                  <Input
                     label="Beds"
-                    options={['Studio', '1', '2', '3', '4']}
+                    type="number"
+                    min={0}
+                    step={1}
+                    placeholder="e.g. 2"
                     value={newUnitForm.beds}
                     onChange={(e) => setNewUnitForm({ ...newUnitForm, beds: e.target.value })}
                   />
-                  <Select
+                  <Input
                     label="Baths"
-                    options={['1', '1.5', '2', '2.5', '3']}
+                    type="number"
+                    min={0}
+                    step={0.5}
+                    placeholder="e.g. 1.5"
                     value={newUnitForm.baths}
                     onChange={(e) => setNewUnitForm({ ...newUnitForm, baths: e.target.value })}
                   />

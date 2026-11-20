@@ -123,8 +123,14 @@ export default function AddTenant() {
         unitId: unitObj ? Number(unitObj.id) : undefined,
         unitNumber: selectedUnit || unitObj?.unitNumber,
         status: 'Active',
+        rent: Number(form.rent) || 0,
+        rentAmount: Number(form.rent) || 0,
+        deposit: Number(form.deposit) || 0,
+        depositAmount: Number(form.deposit) || 0,
         moveInDate: new Date().toISOString().slice(0, 10),
-        privateNotes: form.notes || 'Added via Tenant Onboarding Wizard.',
+        privateNotes: form.notes
+          ? `${form.notes} [DEPOSIT:${form.deposit || 0}]`
+          : `Added via Tenant Onboarding Wizard. [DEPOSIT:${form.deposit || 0}]`,
         createPortalLogin: true,
       };
 
@@ -145,14 +151,15 @@ export default function AddTenant() {
         unitId: unitObj?.id || null,
         unitNumber: selectedUnit || 'TBD',
         moveInDate: new Date().toISOString().slice(0, 10),
-        rent: Number(form.rent) || 0,
-        deposit: Number(form.deposit) || 0,
-        dueAmount: 0,
         leaseEnd: '2027-11-30',
         status: 'Active',
         smsOptIn: form.smsOptIn,
         notes: form.notes || 'Added via Tenant Onboarding Wizard.',
         ...created,
+        rent: Number(form.rent) || Number(created?.rent) || 0,
+        deposit: Number(form.deposit) || Number(created?.deposit) || 0,
+        trustDepositHeld: Number(form.deposit) || Number(created?.deposit) || 0,
+        dueAmount: 0,
       });
 
       toast.success(`${form.name} enrolled and saved to database!`);
