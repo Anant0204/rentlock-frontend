@@ -3,7 +3,7 @@ import apiClient from '../../services/apiClient';
 import {
   Building2, DoorOpen, TrendingUp, AlertCircle, Wrench,
   CalendarClock, CreditCard, ArrowUpRight, FileText, Wallet, Receipt,
-  Truck, Car, ShieldCheck, KeyRound, Megaphone, Banknote, Plus, Trash2
+  Truck, Car, ShieldCheck, KeyRound, Megaphone, Banknote, Plus, Trash2, CheckCircle2
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import StatCard from '../../components/shared/StatCard';
@@ -15,12 +15,6 @@ import AreaChartComponent from '../../components/charts/AreaChart';
 import PieChartComponent from '../../components/charts/PieChart';
 import Avatar from '../../components/ui/Avatar';
 import { formatCurrency, getStatusColor } from '../../utils/formatters';
-import { mockReports } from '../../data/mockExtra';
-import { getInvoices } from '../../data/mockInvoices';
-import { getProperties } from '../../data/mockProperties';
-import {
-  getVendors, getParkingStalls, getVisitors, getStaff, getBroadcasts
-} from '../../data/mockOperations';
 import {
   getPortfoliosSync, fetchPortfolios, addPortfolioGroup, deletePortfolioGroup
 } from '../../utils/portfolioStore';
@@ -83,11 +77,12 @@ export default function Dashboard() {
 
   // Live Backend Database State
   const [backendSummary, setBackendSummary] = useState(null);
-  const [liveProperties, setLiveProperties] = useState(() => getProperties().filter((p) => !p.archived));
+  const [liveProperties, setLiveProperties] = useState([]);
   const [liveUnits, setLiveUnits] = useState([]);
   const [liveInvoices, setLiveInvoices] = useState([]);
   const [liveExpenses, setLiveExpenses] = useState([]);
   const [liveWorkOrders, setLiveWorkOrders] = useState([]);
+  const [liveLeases, setLiveLeases] = useState([]);
   const [revenueTrend, setRevenueTrend] = useState([]);
   const [expenseBreakdown, setExpenseBreakdown] = useState([]);
   const [operationsData, setOperationsData] = useState(null);
@@ -152,6 +147,14 @@ export default function Dashboard() {
       }
     }).catch(() => { });
 
+    // 6b. Fetch live leases from backend
+    apiClient.get('/leases?limit=100').then((res) => {
+      const items = res?.items || res;
+      if (Array.isArray(items)) {
+        setLiveLeases(items.filter((l) => !l.archived && l.status !== 'Archived'));
+      }
+    }).catch(() => { });
+
     // 7. Fetch 6-month revenue by month trend
     apiClient.get('/reports/revenue-by-month').then((items) => {
       if (Array.isArray(items) && items.length > 0) {
@@ -166,18 +169,20 @@ export default function Dashboard() {
       }
     }).catch(() => { });
 
-    // 9. Fetch operations overview stats
+    // 9. Fetch operations overview stats & communication notices
     Promise.all([
       apiClient.get('/operations/vendors').catch(() => null),
       apiClient.get('/operations/parking').catch(() => null),
       apiClient.get('/operations/visitors').catch(() => null),
       apiClient.get('/operations/staff').catch(() => null),
-    ]).then(([vRes, pRes, visRes, sRes]) => {
+      apiClient.get('/messages/threads').catch(() => null),
+    ]).then(([vRes, pRes, visRes, sRes, mRes]) => {
       setOperationsData({
-        vendors: Array.isArray(vRes?.items || vRes) ? (vRes?.items || vRes) : null,
-        stalls: Array.isArray(pRes?.items || pRes) ? (pRes?.items || pRes) : null,
-        visitors: Array.isArray(visRes?.items || visRes) ? (visRes?.items || visRes) : null,
-        staff: Array.isArray(sRes?.items || sRes) ? (sRes?.items || sRes) : null,
+        vendors: Array.isArray(vRes?.items || vRes) ? (vRes?.items || vRes) : [],
+        stalls: Array.isArray(pRes?.items || pRes) ? (pRes?.items || pRes) : [],
+        visitors: Array.isArray(visRes?.items || visRes) ? (visRes?.items || visRes) : [],
+        staff: Array.isArray(sRes?.items || sRes) ? (sRes?.items || sRes) : [],
+        threads: Array.isArray(mRes?.items || mRes) ? (mRes?.items || mRes) : [],
       });
     }).catch(() => { });
 
@@ -206,7 +211,7 @@ export default function Dashboard() {
   };
 
   const properties = useMemo(() => {
-    const all = liveProperties.length > 0 ? liveProperties : getProperties().filter((p) => !p.archived);
+    const all = liveProperties;
     if (!portfolioFilter || portfolioFilter === 'All Portfolios' || portfolioFilter === 'All Areas') return all;
     return all.filter((p) => (p.portfolioGroup || '').trim().toLowerCase() === portfolioFilter.trim().toLowerCase());
   }, [portfolioFilter, liveProperties]);
@@ -265,6 +270,15 @@ export default function Dashboard() {
     });
   }, [liveWorkOrders, isAllPortfolios, selectedPropIds, selectedPropNames]);
 
+  const scopedLeases = useMemo(() => {
+    if (isAllPortfolios) return liveLeases;
+    return liveLeases.filter((l) => {
+      const pId = l.propertyId !== undefined && l.propertyId !== null ? l.propertyId : '';
+      const pName = (l.propertyName || l.property?.name || '').trim().toLowerCase();
+      return (pId && selectedPropIds.has(pId)) || (pName && selectedPropNames.has(pName));
+    });
+  }, [liveLeases, isAllPortfolios, selectedPropIds, selectedPropNames]);
+
   const metrics = useMemo(() => {
     const isFiltered = portfolioFilter !== 'All Portfolios';
 
@@ -318,6 +332,19 @@ export default function Dashboard() {
 
     const activeTickets = scopedWorkOrders.filter((w) => !['resolved', 'closed'].includes((w.status || '').toLowerCase())).length || (!isFiltered && backendSummary?.activeWorkOrders ? Number(backendSummary.activeWorkOrders) : 0);
 
+    const now = new Date();
+    const in60Days = new Date();
+    in60Days.setDate(now.getDate() + 60);
+
+    const leasesExpiring = scopedLeases.filter((l) => {
+      if ((l.status || '').toLowerCase() === 'expiring soon') return true;
+      if (l.endDate) {
+        const end = new Date(l.endDate);
+        return !isNaN(end.getTime()) && end >= now && end <= in60Days;
+      }
+      return false;
+    }).length;
+
     return {
       occupiedUnits,
       totalUnits,
@@ -327,19 +354,19 @@ export default function Dashboard() {
       collectedPct,
       overdueRent,
       vacancyLoss,
-      leasesExpiring: 0,
+      leasesExpiring,
       openWorkOrders: activeTickets,
       noiYtd,
       expenseTotal: totalExpenses,
     };
-  }, [portfolioFilter, properties, scopedUnits, scopedInvoices, scopedExpenses, scopedWorkOrders, backendSummary]);
+  }, [portfolioFilter, properties, scopedUnits, scopedInvoices, scopedExpenses, scopedWorkOrders, scopedLeases, backendSummary]);
 
   const operationsOverview = useMemo(() => {
-    let vendors = operationsData?.vendors || getVendors();
-    let stalls = operationsData?.stalls || getParkingStalls();
-    let visitors = operationsData?.visitors || getVisitors();
-    let staff = operationsData?.staff || getStaff();
-    let broadcasts = getBroadcasts();
+    let vendors = operationsData?.vendors || [];
+    let stalls = operationsData?.stalls || [];
+    let visitors = operationsData?.visitors || [];
+    let staff = operationsData?.staff || [];
+    let broadcasts = operationsData?.threads || [];
 
     if (!isAllPortfolios) {
       stalls = stalls.filter((s) => selectedPropIds.has(Number(s.propertyId)) || selectedPropNames.has((s.propertyName || '').trim().toLowerCase()));
@@ -458,7 +485,67 @@ export default function Dashboard() {
   if (user?.role === 'manager') return <ManagerHome />;
   if (user?.role === 'owner') return <OwnerOverview />;
 
-  const allInvoices = liveInvoices.length > 0 ? liveInvoices : getInvoices();
+  // Dynamic Reminders derived from live database alerts
+  const dynamicReminders = useMemo(() => {
+    const list = [];
+    const now = new Date();
+    const in60Days = new Date();
+    in60Days.setDate(now.getDate() + 60);
+
+    // 1. Expiring leases
+    scopedLeases.forEach((l) => {
+      let isExpiring = (l.status || '').toLowerCase() === 'expiring soon';
+      let d = l.endDate ? new Date(l.endDate) : null;
+      if (d && !isNaN(d.getTime()) && d >= now && d <= in60Days) {
+        isExpiring = true;
+      }
+      if (isExpiring) {
+        const dateObj = d && !isNaN(d.getTime()) ? d : in60Days;
+        list.push({
+          id: `lease-${l.id}`,
+          day: String(dateObj.getDate()).padStart(2, '0'),
+          month: dateObj.toLocaleString('en-US', { month: 'short' }),
+          title: 'Lease Renewal Due',
+          subtitle: `${l.tenantName || l.tenant?.name || 'Resident'} · Unit ${l.unitNumber || l.unit?.unitNumber || ''} (${l.propertyName || l.property?.name || ''})`.trim(),
+          tag: 'Lease',
+          path: '/leases',
+        });
+      }
+    });
+
+    // 2. Overdue Invoices
+    scopedInvoices.filter((i) => i.status === 'Overdue').forEach((i) => {
+      const d = i.dueDate ? new Date(i.dueDate) : now;
+      const dueVal = !isNaN(d.getTime()) ? d : now;
+      const amt = Number(i.balance !== undefined && i.balance !== null ? i.balance : i.amount) || 0;
+      list.push({
+        id: `inv-${i.id}`,
+        day: String(dueVal.getDate()).padStart(2, '0'),
+        month: dueVal.toLocaleString('en-US', { month: 'short' }),
+        title: 'Overdue Rent Collection',
+        subtitle: `${i.tenantName || 'Resident'} · ${formatCurrency(amt)} overdue`,
+        tag: 'Collection',
+        path: '/rent-payments?tab=collections',
+      });
+    });
+
+    // 3. Urgent or High Work Orders
+    scopedWorkOrders.filter((w) => ['urgent', 'high'].includes((w.priority || '').toLowerCase())).forEach((w) => {
+      const d = w.createdAt ? new Date(w.createdAt) : now;
+      const tVal = !isNaN(d.getTime()) ? d : now;
+      list.push({
+        id: `wo-${w.id}`,
+        day: String(tVal.getDate()).padStart(2, '0'),
+        month: tVal.toLocaleString('en-US', { month: 'short' }),
+        title: 'Urgent Maintenance Dispatch',
+        subtitle: `${w.title || w.issue || 'Work Order'} · ${w.propertyName || ''}`,
+        tag: 'Priority SLA',
+        path: '/maintenance',
+      });
+    });
+
+    return list.slice(0, 3);
+  }, [scopedLeases, scopedInvoices, scopedWorkOrders]);
 
   // 7 Core KPIs matching PDF Page 1
   const kpis = [
@@ -481,12 +568,41 @@ export default function Dashboard() {
     { label: 'Add Property', icon: Building2, path: '/properties/add' },
   ];
 
-  const agingBuckets = [
-    { label: 'Current', amount: allInvoices.filter((i) => i.status === 'Current' || i.status === 'Pending').reduce((s, i) => s + (Number(i.amount) || 0), 0), color: 'bg-blue-500' },
-    { label: '1–30 Days', amount: allInvoices.filter((i) => i.status === 'Overdue' && (i.daysPastDue || 0) <= 30).reduce((s, i) => s + (Number(i.amount) || 0), 0), color: 'bg-amber-500' },
-    { label: '31–60 Days', amount: allInvoices.filter((i) => i.status === 'Overdue' && (i.daysPastDue || 0) > 30 && (i.daysPastDue || 0) <= 60).reduce((s, i) => s + (Number(i.amount) || 0), 0), color: 'bg-orange-500' },
-    { label: '61–90 Days', amount: allInvoices.filter((i) => i.status === 'Overdue' && (i.daysPastDue || 0) > 60).reduce((s, i) => s + (Number(i.amount) || 0), 0), color: 'bg-red-500' },
-  ];
+  const agingBuckets = useMemo(() => {
+    const now = new Date();
+    const getDaysPastDue = (inv) => {
+      if (inv.daysPastDue !== undefined && inv.daysPastDue !== null) return Number(inv.daysPastDue);
+      if (!inv.dueDate) return 0;
+      const due = new Date(inv.dueDate);
+      if (isNaN(due.getTime())) return 0;
+      const diff = Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
+      return diff > 0 ? diff : 0;
+    };
+    const getInvBalance = (inv) => Number(inv.balance !== undefined && inv.balance !== null ? inv.balance : inv.amount) || 0;
+
+    return [
+      {
+        label: 'Current',
+        amount: scopedInvoices.filter((i) => i.status === 'Current' || i.status === 'Pending').reduce((s, i) => s + getInvBalance(i), 0),
+        color: 'bg-blue-500'
+      },
+      {
+        label: '1–30 Days',
+        amount: scopedInvoices.filter((i) => i.status === 'Overdue' && getDaysPastDue(i) <= 30).reduce((s, i) => s + getInvBalance(i), 0),
+        color: 'bg-amber-500'
+      },
+      {
+        label: '31–60 Days',
+        amount: scopedInvoices.filter((i) => i.status === 'Overdue' && getDaysPastDue(i) > 30 && getDaysPastDue(i) <= 60).reduce((s, i) => s + getInvBalance(i), 0),
+        color: 'bg-orange-500'
+      },
+      {
+        label: '61–90 Days',
+        amount: scopedInvoices.filter((i) => i.status === 'Overdue' && getDaysPastDue(i) > 60).reduce((s, i) => s + getInvBalance(i), 0),
+        color: 'bg-red-500'
+      },
+    ];
+  }, [scopedInvoices]);
 
   return (
     <div className="space-y-4">
@@ -783,20 +899,20 @@ export default function Dashboard() {
             action={<button onClick={() => navigate('/leases')} className="text-xs text-[#4A6CF7] font-semibold hover:bg-[#EEF2FF] px-2 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1">View <ArrowUpRight className="w-3.5 h-3.5" /></button>}
           />
           <div className="space-y-2.5 mt-2">
-            {properties.length === 0 ? (
+            {dynamicReminders.length === 0 ? (
               <p className="text-xs text-gray-400 py-6 text-center">No pending reminders.</p>
             ) : (
-              properties.slice(0, 3).map((p, i) => (
-                <div key={i} onClick={() => navigate(`/properties/${p.id}`)} className="flex items-center gap-3 p-2.5 rounded-xl bg-gradient-to-r from-[#EEF2FF] to-[#F3F0FF] border border-[#A855F7]/10 cursor-pointer hover:shadow-sm transition-all">
+              dynamicReminders.map((r) => (
+                <div key={r.id} onClick={() => navigate(r.path)} className="flex items-center gap-3 p-2.5 rounded-xl bg-gradient-to-r from-[#EEF2FF] to-[#F3F0FF] border border-[#A855F7]/10 cursor-pointer hover:shadow-sm transition-all">
                   <div className="w-10 h-10 rounded-xl bg-white flex flex-col items-center justify-center shadow-sm shrink-0 border border-gray-100/50">
-                    <span className="text-sm font-bold text-[#4A6CF7] leading-none">01</span>
-                    <span className="text-[9px] font-bold text-gray-500 uppercase mt-0.5">Dec</span>
+                    <span className="text-sm font-bold text-[#4A6CF7] leading-none">{r.day}</span>
+                    <span className="text-[9px] font-bold text-gray-500 uppercase mt-0.5">{r.month}</span>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-gray-800 truncate">Insurance Renewal Due</p>
-                    <p className="text-[11px] text-gray-500 truncate">{p.name} COI</p>
+                    <p className="text-xs font-bold text-gray-800 truncate">{r.title}</p>
+                    <p className="text-[11px] text-gray-500 truncate">{r.subtitle}</p>
                   </div>
-                  <span className="text-[10px] text-[#4A6CF7] font-bold bg-white px-2 py-1 rounded-lg">Compliance</span>
+                  <span className="text-[10px] text-[#4A6CF7] font-bold bg-white px-2 py-1 rounded-lg">{r.tag}</span>
                 </div>
               ))
             )}
