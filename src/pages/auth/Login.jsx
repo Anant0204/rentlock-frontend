@@ -15,10 +15,10 @@ import toast from 'react-hot-toast';
 
 /* ─────────────────────── ROLE CONFIG (4 ACCOUNTS) ─────────────────────── */
 const ROLES = [
-  { key: 'admin',   label: 'Admin',   icon: Shield,   gradient: 'from-violet-500 to-indigo-600', ring: 'ring-violet-400/30', credential: { email: 'admin@rentlock.com', password: 'demo123' } },
-  { key: 'owner',   label: 'Owner',   icon: Crown,    gradient: 'from-emerald-500 to-teal-500',  ring: 'ring-emerald-400/30',credential: { email: 'owner@rentlock.com', password: 'demo123' } },
-  { key: 'manager', label: 'Manager', icon: Users,    gradient: 'from-blue-500 to-cyan-500',     ring: 'ring-blue-400/30',   credential: { email: 'sarah.jenkins@rentlock.com', password: 'demo123' } },
-  { key: 'tenant',  label: 'Tenant',  icon: KeyRound, gradient: 'from-rose-500 to-pink-500',     ring: 'ring-rose-400/30',   credential: { email: 'rebecca@rentlock.com', password: 'demo123' } },
+  { key: 'admin',   label: 'Admin',   icon: Shield,   gradient: 'from-violet-500 to-indigo-600', ring: 'ring-violet-400/30', credential: { email: 'admin@rentlock.com' } },
+  { key: 'owner',   label: 'Owner',   icon: Crown,    gradient: 'from-emerald-500 to-teal-500',  ring: 'ring-emerald-400/30',credential: { email: 'owner@rentlock.com' } },
+  { key: 'manager', label: 'Manager', icon: Users,    gradient: 'from-blue-500 to-cyan-500',     ring: 'ring-blue-400/30',   credential: { email: 'sarah.jenkins@rentlock.com' } },
+  { key: 'tenant',  label: 'Tenant',  icon: KeyRound, gradient: 'from-rose-500 to-pink-500',     ring: 'ring-rose-400/30',   credential: { email: 'rebecca@rentlock.com' } },
 ];
 
 /* ─────────────────────── PSEUDO-RANDOM HELPER ─────────────────────── */
@@ -257,7 +257,7 @@ export default function Login() {
   const { login, loading } = useAuth();
   const navigate = useNavigate();
 
-  const [form, setForm] = useState({ email: 'admin@rentlock.com', password: 'demo123', role: 'admin' });
+  const [form, setForm] = useState({ email: 'admin@rentlock.com', password: '', role: 'admin' });
   const [errors, setErrors] = useState({});
   const [remember, setRemember] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
@@ -317,7 +317,7 @@ export default function Login() {
   const selectRole = (role) => {
     setForm({
       email: role.credential.email,
-      password: role.credential.password,
+      password: '',
       role: role.key,
     });
     setErrors({});
