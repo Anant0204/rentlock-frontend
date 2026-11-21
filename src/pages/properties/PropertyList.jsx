@@ -20,6 +20,11 @@ export default function PropertyList() {
     apiClient.get('/properties?limit=100').then((res) => {
       const items = res?.items || res;
       if (Array.isArray(items)) {
+        if (items.length === 0) {
+          setAllProperties([]);
+          localStorage.removeItem('custom_properties');
+          return;
+        }
         const localList = getProperties();
 
         // Deduplicate incoming backend items by property name

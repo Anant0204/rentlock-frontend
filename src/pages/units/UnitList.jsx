@@ -54,7 +54,7 @@ export default function UnitList() {
 
     apiClient.get('/properties?limit=100').then((res) => {
       const items = res?.items || res;
-      if (Array.isArray(items) && items.length > 0) {
+      if (Array.isArray(items)) {
         setProperties(items);
       }
     }).catch(() => { });

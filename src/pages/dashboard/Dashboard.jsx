@@ -112,6 +112,7 @@ export default function Dashboard() {
       const items = res?.items || res;
       if (Array.isArray(items)) {
         setLiveProperties(items.filter((p) => !p.archived));
+        localStorage.setItem('custom_properties', JSON.stringify(items));
       }
     }).catch(() => { });
 

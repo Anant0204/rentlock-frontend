@@ -16,9 +16,6 @@ import toast from 'react-hot-toast';
 /* ─────────────────────── ROLE CONFIG (4 ACCOUNTS) ─────────────────────── */
 const ROLES = [
   { key: 'admin',   label: 'Admin',   icon: Shield,   gradient: 'from-violet-500 to-indigo-600', ring: 'ring-violet-400/30', credential: { email: 'admin@rentlock.com' } },
-  { key: 'owner',   label: 'Owner',   icon: Crown,    gradient: 'from-emerald-500 to-teal-500',  ring: 'ring-emerald-400/30',credential: { email: 'owner@rentlock.com' } },
-  { key: 'manager', label: 'Manager', icon: Users,    gradient: 'from-blue-500 to-cyan-500',     ring: 'ring-blue-400/30',   credential: { email: 'sarah.jenkins@rentlock.com' } },
-  { key: 'tenant',  label: 'Tenant',  icon: KeyRound, gradient: 'from-rose-500 to-pink-500',     ring: 'ring-rose-400/30',   credential: { email: 'rebecca@rentlock.com' } },
 ];
 
 /* ─────────────────────── PSEUDO-RANDOM HELPER ─────────────────────── */
@@ -570,41 +567,43 @@ export default function Login() {
               {/* Header */}
               <motion.div variants={fadeUp} className="mb-7">
                 <h2 className="text-xl font-bold text-white tracking-tight">Sign in to your account</h2>
-                <p className="text-xs text-white/30 mt-1.5">Select a role below to explore the platform</p>
+                <p className="text-xs text-white/30 mt-1.5">Enter your credentials to access the platform</p>
               </motion.div>
 
-              {/* Role Selector */}
-              <motion.div variants={fadeUp} className="mb-6">
-                <div className="grid grid-cols-4 gap-1.5">
-                  {ROLES.map((role) => {
-                    const active = form.role === role.key;
-                    const RIcon = role.icon;
-                    return (
-                      <motion.button
-                        key={role.key}
-                        type="button"
-                        onClick={() => selectRole(role)}
-                        whileHover={{ y: -2 }}
-                        whileTap={{ scale: 0.95 }}
-                        className={`
-                          relative flex flex-col items-center gap-1 py-2.5 px-1 rounded-xl border cursor-pointer
-                          transition-all duration-300
-                          ${active
-                            ? `bg-gradient-to-b ${role.gradient} border-transparent shadow-lg ring-1 ${role.ring}`
-                            : 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.06] hover:border-white/[0.12]'
-                          }
-                        `}
-                      >
-                        <RIcon className={`w-3.5 h-3.5 ${active ? 'text-white' : 'text-white/30'} transition-colors`} />
-                        <span className={`text-[9px] font-medium ${active ? 'text-white' : 'text-white/30'} transition-colors`}>
-                          {role.label}
-                        </span>
-                      </motion.button>
-                    );
-                  })}
-                </div>
-                {errors.role && <p className="text-[11px] text-red-400 mt-1.5">{errors.role}</p>}
-              </motion.div>
+              {/* Role Selector (visible only when multiple preset accounts configured) */}
+              {ROLES.length > 1 && (
+                <motion.div variants={fadeUp} className="mb-6">
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {ROLES.map((role) => {
+                      const active = form.role === role.key;
+                      const RIcon = role.icon;
+                      return (
+                        <motion.button
+                          key={role.key}
+                          type="button"
+                          onClick={() => selectRole(role)}
+                          whileHover={{ y: -2 }}
+                          whileTap={{ scale: 0.95 }}
+                          className={`
+                            relative flex flex-col items-center gap-1 py-2.5 px-1 rounded-xl border cursor-pointer
+                            transition-all duration-300
+                            ${active
+                              ? `bg-gradient-to-b ${role.gradient} border-transparent shadow-lg ring-1 ${role.ring}`
+                              : 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.06] hover:border-white/[0.12]'
+                            }
+                          `}
+                        >
+                          <RIcon className={`w-3.5 h-3.5 ${active ? 'text-white' : 'text-white/30'} transition-colors`} />
+                          <span className={`text-[9px] font-medium ${active ? 'text-white' : 'text-white/30'} transition-colors`}>
+                            {role.label}
+                          </span>
+                        </motion.button>
+                      );
+                    })}
+                  </div>
+                  {errors.role && <p className="text-[11px] text-red-400 mt-1.5">{errors.role}</p>}
+                </motion.div>
+              )}
 
               {/* Form */}
               <form onSubmit={handleSubmit} className="space-y-4">

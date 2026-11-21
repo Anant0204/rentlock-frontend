@@ -34,7 +34,12 @@ export default function ManagerList() {
   useEffect(() => {
     apiClient.get('/managers').then((res) => {
       const items = res?.items || res;
-      if (Array.isArray(items) && items.length > 0) {
+      if (Array.isArray(items)) {
+        if (items.length === 0) {
+          setManagers([]);
+          localStorage.removeItem('custom_managers');
+          return;
+        }
         const savedRaw = localStorage.getItem('custom_managers');
         let localManagers = [];
         try {

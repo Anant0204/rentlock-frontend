@@ -259,47 +259,11 @@ export const authService = {
         }
       }
 
-      // If error was wrong password (401), re-throw strictly so invalid credentials are not bypassed
-      if (apiErr?.status === 401 || apiErr?.code === 'INVALID_CREDENTIALS') {
-        throw new Error(apiErr.message || 'Invalid email or password');
-      }
+      // Re-throw authentication error strictly so invalid credentials/users are not bypassed
+      throw new Error(apiErr?.message || 'Invalid email or password');
     }
 
-    // 2. Offline / Demo Fallback (ensures frontend works even if backend is paused)
-    const demoUsers = {
-      admin: {
-        id: 1,
-        name: 'Robert King',
-        email: 'admin@rentlock.com',
-        role: 'admin',
-        scope: 'All Portfolio Properties',
-      },
-      owner: {
-        id: 2,
-        name: 'Claire Bennett',
-        email: 'owner@rentlock.com',
-        role: 'owner',
-        scope: 'Owned Properties',
-      },
-      manager: {
-        id: 3,
-        name: 'Sarah Jenkins',
-        email: 'sarah.jenkins@rentlock.com',
-        role: 'manager',
-        scope: 'Assigned Properties',
-      },
-      tenant: {
-        id: 4,
-        name: 'Rebecca Miller',
-        email: 'rebecca@rentlock.com',
-        role: 'tenant',
-        scope: 'Sunrise Residency · A-204',
-      },
-    };
-
-    const targetUser = demoUsers[cleanRole] || demoUsers.admin;
-    const fallbackToken = `mock-jwt-token-${cleanRole}-` + Date.now();
-    return { user: targetUser, token: fallbackToken, refreshToken: fallbackToken };
+    throw new Error('Invalid email or password');
   },
 
   logout: async () => {

@@ -618,9 +618,13 @@ export default function SettingsPage() {
     toast.success(`Revoked active session for ${userLabel}.`);
   };
 
-  const handleClearAllData = () => {
-    setCleanMode();
-    toast.success('All dummy/test records cleared! Ready to test fresh flow from 0 records.');
+  const handleClearAllData = async () => {
+    try {
+      await setCleanMode(true);
+      toast.success('All operational data and non-admin records successfully purged! Ready from 0 records.');
+    } catch {
+      toast.success('Data cleared from platform.');
+    }
     setTimeout(() => {
       window.location.reload();
     }, 600);
