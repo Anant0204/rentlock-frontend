@@ -16,6 +16,14 @@ export default function PropertyList() {
   const [activeTab, setActiveTab] = useState('All');
   const [sortBy, setSortBy] = useState('Newest');
 
+  const sanitizeImage = (img) => {
+    if (!img || typeof img !== 'string') return null;
+    if (img.includes('/properties/apt.png') || img.includes('/properties/office.png') || img.includes('/properties/villa.png')) {
+      return null;
+    }
+    return img;
+  };
+
   useEffect(() => {
     apiClient.get('/properties?limit=100').then((res) => {
       const items = res?.items || res;
@@ -60,6 +68,7 @@ export default function PropertyList() {
             manager: p.manager || local?.manager || 'Unassigned',
             owner: p.owner || local?.owner || 'Unassigned',
             units: Array.isArray(p.units) && p.units.length > 0 ? p.units : (local?.units || []),
+            image: sanitizeImage(p.imageUrl || p.image || local?.image || local?.imageUrl),
           };
         });
         setAllProperties(merged);
@@ -108,12 +117,6 @@ export default function PropertyList() {
 
     return result;
   }, [searchQuery, activeTab, sortBy, allProperties]);
-
-  const getPropertyImage = (category) => {
-    if (category === 'Office' || category === 'Warehouse') return '/properties/office.png';
-    if (category === 'Townhome' || category === 'Single-Family' || category === 'Villa') return '/properties/villa.png';
-    return '/properties/apt.png';
-  };
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
@@ -177,36 +180,46 @@ export default function PropertyList() {
             </Button>
           </div>
         ) : (
-          filteredProperties.map((property) => (
-          <Card
-            key={property.id}
-            hover
-            onClick={() => navigate(`/properties/${property.id}`)}
-            padding="p-0"
-            className="overflow-hidden border-gray-100/60"
-          >
-            <div className="h-28 relative overflow-hidden group border-b border-gray-100">
-              <img
-                src={property.image || getPropertyImage(property.category)}
-                alt={property.name}
-                className="absolute inset-0 w-full h-full object-cover opacity-90 group-hover:scale-105 transition-transform duration-500"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-              <div className="absolute top-2 right-2">
-                <Badge variant={property.status === 'Active' ? 'success' : 'default'} className="backdrop-blur-md bg-white/20 text-white border-white/10 text-[9px] py-0 px-1.5">
-                  {property.status}
-                </Badge>
-              </div>
-              <div className="absolute bottom-2 left-3">
-                <h3 className="text-white font-black text-sm leading-tight drop-shadow-sm">{property.name}</h3>
-                <p className="text-white/75 font-bold text-[10px] drop-shadow-sm">{property.code || `PR-${property.id}`} · Mgr: {typeof property.manager === 'object' && property.manager !== null ? property.manager.name : (property.manager || 'Sarah Jenkins')}</p>
-              </div>
-              <div className="absolute bottom-2 right-3">
-                <ArrowUpRight className="w-4 h-4 text-white/50" />
-              </div>
-            </div>
+          filteredProperties.map((property) => {
+            const customImage = sanitizeImage(property.image || property.imageUrl);
+            return (
+              <Card
+                key={property.id}
+                hover
+                onClick={() => navigate(`/properties/${property.id}`)}
+                padding="p-0"
+                className="overflow-hidden border-gray-100/60"
+              >
+                <div className="h-28 relative overflow-hidden group border-b border-gray-100 bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900">
+                  {customImage ? (
+                    <>
+                      <img
+                        src={customImage}
+                        alt={property.name}
+                        className="absolute inset-0 w-full h-full object-cover opacity-90 group-hover:scale-105 transition-transform duration-500"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/35 to-transparent" />
+                    </>
+                  ) : (
+                    <div className="absolute inset-0 flex items-center justify-end pr-4 opacity-15 pointer-events-none">
+                      <Building2 className="w-20 h-20 text-white" />
+                    </div>
+                  )}
+                  <div className="absolute top-2 right-2 z-10">
+                    <Badge variant={property.status === 'Active' ? 'success' : 'default'} className="backdrop-blur-md bg-white/20 text-white border-white/10 text-[9px] py-0 px-1.5">
+                      {property.status}
+                    </Badge>
+                  </div>
+                  <div className="absolute bottom-2 left-3 z-10">
+                    <h3 className="text-white font-black text-sm leading-tight drop-shadow-sm">{property.name}</h3>
+                    <p className="text-white/75 font-bold text-[10px] drop-shadow-sm">{property.code || `PR-${property.id}`} · Mgr: {typeof property.manager === 'object' && property.manager !== null ? property.manager.name : (property.manager || 'Sarah Jenkins')}</p>
+                  </div>
+                  <div className="absolute bottom-2 right-3 z-10">
+                    <ArrowUpRight className="w-4 h-4 text-white/50 group-hover:text-white transition-colors" />
+                  </div>
+                </div>
 
-            <div className="p-3 space-y-2.5">
+                <div className="p-3 space-y-2.5">
               <div className="flex items-center gap-1.5 text-gray-500">
                 <MapPin className="w-3 h-3 text-gray-400 shrink-0" />
                 <span className="truncate text-[11px] font-medium">{property.address}</span>
@@ -239,7 +252,8 @@ export default function PropertyList() {
               </div>
             </div>
           </Card>
-        ))
+        );
+      })
       )}
       </div>
     </div>
