@@ -57,24 +57,16 @@ export default function AddProperty() {
     // Fetch live managers
     apiClient.get('/managers').then((res) => {
       const items = res?.items || res;
-      if (Array.isArray(items) && items.length > 0) {
-        setManagersList((prev) => {
-          const names = new Set(items.map((m) => m.name.toLowerCase()));
-          const extra = prev.filter((m) => !names.has(m.name.toLowerCase()));
-          return [...items, ...extra];
-        });
+      if (Array.isArray(items)) {
+        setManagersList(items);
       }
     }).catch(() => { });
 
     // Fetch live owners
     apiClient.get('/owners').then((res) => {
       const items = res?.items || res;
-      if (Array.isArray(items) && items.length > 0) {
-        setOwnersList((prev) => {
-          const names = new Set(items.map((o) => o.name.toLowerCase()));
-          const extra = prev.filter((o) => !names.has(o.name.toLowerCase()));
-          return [...items, ...extra];
-        });
+      if (Array.isArray(items)) {
+        setOwnersList(items);
       }
     }).catch(() => { });
 
@@ -382,7 +374,7 @@ export default function AddProperty() {
     setIsCreateManagerOpen(true);
   };
 
-  const handleSaveNewManager = () => {
+  const handleSaveNewManager = async () => {
     if (!newManagerForm.name.trim() || !newManagerForm.email.trim()) {
       return toast.error('Manager Full Name and Email are required.');
     }
@@ -390,24 +382,46 @@ export default function AddProperty() {
       return toast.error('Please create a manager login password (minimum 4 characters).');
     }
 
-    const created = addManager({
-      name: newManagerForm.name.trim(),
-      email: newManagerForm.email.trim(),
-      phone: newManagerForm.phone.trim(),
-      password: newManagerForm.password.trim(),
-      spendingCap: Number(newManagerForm.spendingCap) || 1000,
-      employmentType: newManagerForm.employmentType,
-      shift: newManagerForm.shift,
-      status: newManagerForm.status,
-      properties: [form.name].filter(Boolean),
-    });
+    try {
+      const payload = {
+        name: newManagerForm.name.trim(),
+        email: newManagerForm.email.trim().toLowerCase(),
+        phone: newManagerForm.phone.trim(),
+        password: newManagerForm.password.trim(),
+        spendingCap: Number(newManagerForm.spendingCap) || 1000,
+        employmentType: newManagerForm.employmentType || 'Full-Time',
+        shift: newManagerForm.shift || 'Day (8 AM–5 PM)',
+        status: newManagerForm.status || 'Active',
+        assignedProperties: [form.name].filter(Boolean),
+        properties: [form.name].filter(Boolean),
+      };
 
-    const refreshed = getManagers().filter((m) => !m.archived);
-    setManagersList(refreshed);
-    update('manager', created.name);
+      const res = await apiClient.post('/managers', payload);
+      const created = res?.data || res;
+      const realId = created?.id;
+      const managerName = created?.name || newManagerForm.name.trim();
 
-    setIsCreateManagerOpen(false);
-    toast.success(`Manager ${created.name} created and assigned!`);
+      const newMgrObj = {
+        id: realId,
+        name: managerName,
+        email: created?.email || newManagerForm.email.trim().toLowerCase(),
+        phone: created?.phone || newManagerForm.phone.trim(),
+        spendingCap: Number(newManagerForm.spendingCap) || 1000,
+      };
+
+      setManagersList((prev) => {
+        const filtered = prev.filter((m) => m.email?.toLowerCase() !== newMgrObj.email.toLowerCase());
+        return [newMgrObj, ...filtered];
+      });
+
+      update('manager', managerName);
+      update('managerId', realId);
+
+      setIsCreateManagerOpen(false);
+      toast.success(`Manager ${managerName} created and assigned!`);
+    } catch (err) {
+      toast.error(err.message || 'Failed to create manager in database');
+    }
   };
 
   const addUnitRow = async () => {
@@ -772,7 +786,7 @@ export default function AddProperty() {
   const isStepValid = () => {
     if (currentStep === 0) return Boolean(form.name && form.code && form.type);
     if (currentStep === 1) {
-      if (!form.street || !form.city || !form.state || !form.zip || !form.manager || !form.managementStartDate) return false;
+      if (!form.street || !form.city || !form.state || !form.zip || !form.managementStartDate) return false;
       return Math.abs(ownershipTotal - 100) < 0.01;
     }
     return true;
@@ -854,8 +868,8 @@ export default function AddProperty() {
         city: newProperty.city,
         state: newProperty.state,
         zipCode: newProperty.zip,
-        manager: form.manager,
-        managerId: selectedMgr?.id,
+        manager: form.manager === 'Unassigned' ? '' : (form.manager || ''),
+        managerId: selectedMgr?.id || form.managerId || undefined,
         owner: primaryOwner?.name,
         ownerId: primaryOwner?.ownerId,
         units: unitInventory,
@@ -1106,7 +1120,7 @@ export default function AddProperty() {
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="block text-[13px] font-bold text-gray-700">
-                        Assigned Manager <span className="text-red-500">*</span>
+                        Assigned Manager
                       </label>
                       <button
                         type="button"
@@ -1117,9 +1131,14 @@ export default function AddProperty() {
                       </button>
                     </div>
                     <Select
-                      options={managersList.map((m) => m.name)}
-                      value={form.manager}
-                      onChange={(e) => update('manager', e.target.value)}
+                      options={['Unassigned', ...managersList.map((m) => m.name)]}
+                      value={form.manager || 'Unassigned'}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        update('manager', val);
+                        const found = managersList.find((m) => m.name === val);
+                        update('managerId', found ? found.id : undefined);
+                      }}
                     />
                   </div>
                   <div>
