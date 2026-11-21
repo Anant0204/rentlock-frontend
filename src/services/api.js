@@ -212,15 +212,11 @@ export const authService = {
         if (isDeactivated(matchedCustomUser)) {
           throw new Error(`Account Deactivated: ${cleanEmail} is currently deactivated. Login is disabled.`);
         }
-        const expectedPassword = String(matchedCustomUser.password || '123456');
+        const expectedPassword = String(matchedCustomUser.password || '');
         const enteredPassword = String(password || '');
 
         const isPasswordMatch =
-          enteredPassword === expectedPassword ||
-          enteredPassword === '123456' ||
-          enteredPassword === 'demo123' ||
-          enteredPassword === 'password' ||
-          (matchedCustomUser.password && String(matchedCustomUser.password) === enteredPassword);
+          Boolean(expectedPassword) && enteredPassword === expectedPassword;
 
         if (isPasswordMatch) {
           const role = (matchedCustomUser.role === 'Property Manager' || matchedCustomUser.role === 'manager' || customManagers.some(m => m.id === matchedCustomUser.id))
@@ -263,9 +259,8 @@ export const authService = {
         }
       }
 
-      const isStandardDemo = ['admin@rentlock.com', 'owner@rentlock.com', 'sarah.jenkins@rentlock.com', 'manager@rentlock.com', 'rebecca@rentlock.com', 'tenant@rentlock.com'].includes(cleanEmail) && (password === 'demo123' || !password);
-      // If error was wrong password (401) on non-demo credentials, re-throw
-      if (apiErr.status === 401 && apiErr.code === 'INVALID_CREDENTIALS' && !isStandardDemo) {
+      // If error was wrong password (401), re-throw strictly so invalid credentials are not bypassed
+      if (apiErr?.status === 401 || apiErr?.code === 'INVALID_CREDENTIALS') {
         throw new Error(apiErr.message || 'Invalid email or password');
       }
     }
@@ -329,6 +324,39 @@ export const authService = {
   },
 
   changePassword: async (currentPassword, newPassword) => {
-    return await apiClient.post('/auth/change-password', { currentPassword, newPassword });
+    const res = await apiClient.post('/auth/change-password', { currentPassword, newPassword });
+    try {
+      const userStr = localStorage.getItem('pm_user');
+      if (userStr) {
+        const u = JSON.parse(userStr);
+        if (u && u.email) {
+          const emailLower = u.email.trim().toLowerCase();
+          const mgrs = JSON.parse(localStorage.getItem('custom_managers') || '[]');
+          let updatedMgr = false;
+          const newMgrs = mgrs.map((m) => {
+            if (m.email && m.email.trim().toLowerCase() === emailLower) {
+              updatedMgr = true;
+              return { ...m, password: newPassword };
+            }
+            return m;
+          });
+          if (updatedMgr) localStorage.setItem('custom_managers', JSON.stringify(newMgrs));
+
+          const owners = JSON.parse(localStorage.getItem('custom_owners') || '[]');
+          let updatedOwner = false;
+          const newOwners = owners.map((o) => {
+            if (o.email && o.email.trim().toLowerCase() === emailLower) {
+              updatedOwner = true;
+              return { ...o, password: newPassword };
+            }
+            return o;
+          });
+          if (updatedOwner) localStorage.setItem('custom_owners', JSON.stringify(newOwners));
+        }
+      }
+    } catch {
+      // ignore local sync errors
+    }
+    return res;
   },
 };
