@@ -1,8 +1,8 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Building2, MapPin, Layers, DollarSign, CheckCircle2,
-  ChevronRight, ChevronLeft, Plus, Trash2, Sparkles, Upload, Download, Bed, Bath, Car, X
+  ChevronRight, ChevronLeft, Plus, Trash2, Sparkles, Bed, Bath, Car, X
 } from 'lucide-react';
 import PageHeader from '../../components/shared/PageHeader';
 import Card from '../../components/ui/Card';
@@ -16,7 +16,7 @@ import { AMENITIES, US_STATES, UNIT_TYPES } from '../../utils/constants';
 import { getAmenities, addAmenity as addAmenityToStore, deleteAmenity as deleteAmenityFromStore } from '../../utils/amenityStore';
 import { getPortfoliosSync, fetchPortfolios, addPortfolioGroup, deletePortfolioGroup } from '../../utils/portfolioStore';
 import { formatCurrency } from '../../utils/formatters';
-import { getOwners, getManagers, addOwner, addManager, updateManager } from '../../data/mockExtra';
+import { getOwners, getManagers, addOwner, updateManager } from '../../data/mockExtra';
 import { getParkingStalls, saveParkingStalls } from '../../data/mockOperations';
 import apiClient from '../../services/apiClient';
 import { useAuth } from '../../context/AuthContext';
@@ -82,7 +82,7 @@ export default function AddProperty() {
         const parsed = JSON.parse(saved);
         if (typeof parsed.currentStep === 'number') return parsed.currentStep;
       }
-    } catch { }
+    } catch { /* ignore */ }
     return 0;
   });
 
@@ -120,7 +120,7 @@ export default function AddProperty() {
         const parsed = JSON.parse(saved);
         if (parsed.form) return parsed.form;
       }
-    } catch { }
+    } catch { /* ignore */ }
     return {
       name: '',
       code: '',
@@ -158,7 +158,7 @@ export default function AddProperty() {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed.ownershipRows) && parsed.ownershipRows.length > 0) return parsed.ownershipRows;
       }
-    } catch { }
+    } catch { /* ignore */ }
     return [
       { ownerId: 1, name: '', share: 100 },
     ];
@@ -171,7 +171,7 @@ export default function AddProperty() {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed.selectedAmenities)) return parsed.selectedAmenities;
       }
-    } catch { }
+    } catch { /* ignore */ }
     return ['Parking', 'Controlled Access'];
   });
 
@@ -186,7 +186,7 @@ export default function AddProperty() {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed.unitInventory)) return parsed.unitInventory;
       }
-    } catch { }
+    } catch { /* ignore */ }
     return [];
   });
 
@@ -197,7 +197,7 @@ export default function AddProperty() {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed.parkingStalls)) return parsed.parkingStalls;
       }
-    } catch { }
+    } catch { /* ignore */ }
     return [];
   });
 
@@ -240,7 +240,7 @@ export default function AddProperty() {
           currentStep,
         })
       );
-    } catch { }
+    } catch { /* ignore */ }
   }, [form, ownershipRows, selectedAmenities, unitInventory, parkingStalls, currentStep]);
 
   const update = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
@@ -514,7 +514,7 @@ export default function AddProperty() {
         const list = JSON.parse(saved);
         const filtered = list.filter((u) => u.id !== unitToRemove.id && u.unitNumber !== unitToRemove.unitNumber);
         localStorage.setItem('custom_units', JSON.stringify(filtered));
-      } catch { }
+      } catch { /* ignore */ }
     }
 
     // 3. Delete from MySQL database via DELETE /api/v1/units/:id
@@ -538,143 +538,7 @@ export default function AddProperty() {
     }
   };
 
-  const fileInputRef = useRef(null);
-
-  const downloadSampleCsv = () => {
-    const csvContent =
-      'Unit Number,Floor,Bedrooms,Bathrooms,Sq Ft,Market Rent,Status\n' +
-      'A-101,1,1,1,750,1850,Vacant\n' +
-      'A-102,1,2,1.5,950,2250,Vacant\n' +
-      'A-201,2,2,2,1100,2600,Vacant\n' +
-      'A-202,2,3,2,1300,3100,Vacant\n';
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', 'units_import_template.csv');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    toast.success('Sample CSV template downloaded!');
-  };
-
-  const handleCsvFileUpload = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      try {
-        const text = e.target.result;
-        if (!text || typeof text !== 'string') {
-          toast.error('The selected CSV file appears to be empty.');
-          return;
-        }
-
-        const lines = text
-          .split(/\r\n|\n/)
-          .map((line) => line.trim())
-          .filter((line) => line.length > 0);
-
-        if (lines.length < 2) {
-          toast.error('CSV file must contain a header row and at least one unit row.');
-          return;
-        }
-
-        // Header mapping
-        const headers = lines[0].split(',').map((h) => h.trim().toLowerCase().replace(/[^a-z0-9]/g, ''));
-
-        const getColIdx = (aliases) => {
-          return headers.findIndex((h) => aliases.some((a) => h.includes(a)));
-        };
-
-        const unitIdx = getColIdx(['unitnumber', 'unitnum', 'unit', 'number']);
-        const floorIdx = getColIdx(['floor', 'level']);
-        const bedsIdx = getColIdx(['bed', 'bedroom']);
-        const bathsIdx = getColIdx(['bath', 'bathroom']);
-        const sqftIdx = getColIdx(['sqft', 'size', 'square', 'area']);
-        const rentIdx = getColIdx(['rent', 'marketrent', 'price', 'rate']);
-        const statusIdx = getColIdx(['status']);
-
-        const newUnitsList = [];
-        const existingUnitNums = new Set(unitInventory.map((u) => String(u.unitNumber).trim().toLowerCase()));
-
-        for (let i = 1; i < lines.length; i++) {
-          const rowValues = lines[i].split(',').map((c) => c.trim().replace(/^["']|["']$/g, ''));
-          if (rowValues.length === 0 || rowValues.every((v) => !v)) continue;
-
-          const unitNum = (unitIdx !== -1 && rowValues[unitIdx])
-            ? rowValues[unitIdx]
-            : `U-${100 + unitInventory.length + newUnitsList.length + 1}`;
-
-          // Avoid duplicate unit numbers in inventory
-          if (existingUnitNums.has(unitNum.toLowerCase())) {
-            continue;
-          }
-          existingUnitNums.add(unitNum.toLowerCase());
-
-          const floorNum = Number(floorIdx !== -1 ? rowValues[floorIdx] : 1) || 1;
-          const bedsNum = Number(bedsIdx !== -1 ? rowValues[bedsIdx] : 2) || 2;
-          const bathsNum = Number(bathsIdx !== -1 ? rowValues[bathsIdx] : 1) || 1;
-          const sqftNum = Number(sqftIdx !== -1 ? rowValues[sqftIdx] : 850) || 850;
-          const rentNum = Number(rentIdx !== -1 ? rowValues[rentIdx] : 2000) || 2000;
-          const statusVal = statusIdx !== -1 && rowValues[statusIdx] ? rowValues[statusIdx] : 'Vacant';
-
-          newUnitsList.push({
-            id: Date.now() + i * 17,
-            unitNumber: unitNum,
-            floor: floorNum,
-            beds: bedsNum,
-            baths: bathsNum,
-            type: `${bedsNum} BD / ${bathsNum} BA`,
-            size: sqftNum,
-            rent: rentNum,
-            status: statusVal,
-            building: form.buildingName || 'Main Building',
-          });
-        }
-
-        if (newUnitsList.length === 0) {
-          toast.error('No new units found in CSV or all units already exist.');
-          return;
-        }
-
-        // Add to local state
-        setUnitInventory((prev) => [...prev, ...newUnitsList]);
-        toast.success(`Successfully imported ${newUnitsList.length} units from CSV!`);
-
-        // If property is already created/saved in DB, persist them to backend DB
-        if (savedPropertyId) {
-          for (const u of newUnitsList) {
-            apiClient.post('/units', {
-              propertyId: savedPropertyId,
-              unitNumber: u.unitNumber,
-              floor: u.floor,
-              bedrooms: u.beds,
-              bathrooms: u.baths,
-              sqft: u.size,
-              rentAmount: u.rent,
-              depositAmount: u.rent,
-              status: u.status || 'Vacant',
-            }).catch(() => {});
-          }
-        }
-      } catch (err) {
-        console.error('[CSV Import Error]', err);
-        toast.error('Failed to parse CSV file. Please verify file format.');
-      } finally {
-        if (fileInputRef.current) {
-          fileInputRef.current.value = '';
-        }
-      }
-    };
-
-    reader.readAsText(file);
-  };
-
-  const addImprovement = () => {
+  const _addImprovement = () => {
     if (!newImp.item || !newImp.cost) return;
     setImprovements((prev) => [...prev, { id: Date.now(), ...newImp, cost: Number(newImp.cost) }]);
     setNewImp({ item: '', date: '', cost: '' });
@@ -868,8 +732,9 @@ export default function AddProperty() {
         city: newProperty.city,
         state: newProperty.state,
         zipCode: newProperty.zip,
-        manager: form.manager === 'Unassigned' ? '' : (form.manager || ''),
-        managerId: selectedMgr?.id || form.managerId || undefined,
+        imageUrl: form.image || undefined,
+        manager: form.manager,
+        managerId: selectedMgr?.id,
         owner: primaryOwner?.name,
         ownerId: primaryOwner?.ownerId,
         units: unitInventory,
@@ -935,14 +800,14 @@ export default function AddProperty() {
             });
           }
         }
-      } catch { }
+      } catch { /* ignore */ }
     } catch (apiErr) {
       console.warn('[AddProperty] API save fallback:', apiErr.message);
     }
 
     try {
       localStorage.removeItem(DRAFT_KEY);
-    } catch { }
+    } catch { /* ignore */ }
 
     setIsSubmitting(false);
     toast.success('Property & Units created successfully!');
@@ -1157,36 +1022,10 @@ export default function AddProperty() {
             {/* STEP 3: BUILDING & UNITS */}
             {currentStep === 2 && (
               <div className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <Input label="Building / Block Name" placeholder="e.g. Main Building" value={form.buildingName} onChange={(e) => update('buildingName', e.target.value)} />
                   <Input label="Total Floors" type="number" min={1} placeholder="e.g. 4" value={form.floors} onChange={(e) => update('floors', e.target.value)} />
                   <Select label="Property Status" options={['Active', 'Under Construction', 'Onboarding']} value={form.status} onChange={(e) => update('status', e.target.value)} />
-                  <div className="flex items-end gap-2">
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      accept=".csv,text/csv"
-                      className="hidden"
-                      onChange={handleCsvFileUpload}
-                    />
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      icon={Upload}
-                      onClick={() => fileInputRef.current?.click()}
-                      className="w-full flex-1"
-                    >
-                      Import Units CSV
-                    </Button>
-                    <button
-                      type="button"
-                      onClick={downloadSampleCsv}
-                      title="Download Sample CSV Template"
-                      className="p-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-500 hover:text-indigo-600 transition-colors cursor-pointer shrink-0 flex items-center justify-center"
-                    >
-                      <Download className="w-4 h-4" />
-                    </button>
-                  </div>
                 </div>
 
                 <div className="p-4 bg-gray-50/70 rounded-2xl border border-gray-100">

@@ -220,6 +220,9 @@ export default function PropertyDetail() {
   };
 
   const [propertyUnits, setPropertyUnits] = useState(getPropertyUnitsList);
+  const [availableAmenities, setAvailableAmenities] = useState(() => getAmenities());
+  const [showAddAmenityInModal, setShowAddAmenityInModal] = useState(false);
+  const [newAmenityInputInModal, setNewAmenityInputInModal] = useState('');
   const [newUnitForm, setNewUnitForm] = useState({
     unitNumber: '',
     floor: '',
@@ -488,10 +491,6 @@ export default function PropertyDetail() {
   const updateEditField = (key, value) => {
     setEditForm((prev) => ({ ...prev, [key]: value }));
   };
-
-  const [availableAmenities, setAvailableAmenities] = useState(() => getAmenities());
-  const [showAddAmenityInModal, setShowAddAmenityInModal] = useState(false);
-  const [newAmenityInputInModal, setNewAmenityInputInModal] = useState('');
 
   const toggleEditAmenity = (amenity) => {
     setEditForm((prev) => {
