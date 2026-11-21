@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import ProfileSettings from './ProfileSettings';
+import apiClient from '../../services/apiClient';
 import {
   ShieldCheck,
   Save,
@@ -513,26 +514,65 @@ export default function SettingsPage() {
     setRbacReason('');
   };
 
-  const saveCompanySettings = () => {
-    const next = updateAdminPortalState((prev) => ({
-      ...prev,
-      settings,
-      auditLogs: [
-        {
-          id: createAuditId(),
-          timestamp: formatNowStamp(),
-          user: 'Robert King (Admin)',
-          action: 'Updated Company Defaults',
-          target: `${settings.companyName} · ${settings.accountingBasis}`,
-          beforeAfter: `${settings.currency} · ${settings.dateFormat}`,
-          reason: 'Saved company defaults & module rules',
-          effectiveDate: new Date().toLocaleDateString('en-US'),
-        },
-        ...(prev.auditLogs || []),
-      ],
-    }));
-    setPortalState(next);
-    toast.success('U.S. company profile & defaults saved.');
+  const [isSavingCompany, setIsSavingCompany] = useState(false);
+
+  useEffect(() => {
+    apiClient
+      .get('/settings/company')
+      .then((res) => {
+        const data = res?.data || res;
+        if (data && typeof data === 'object' && (data.companyName || data.supportEmail)) {
+          setSettings((prev) => ({
+            ...prev,
+            ...data,
+          }));
+        }
+      })
+      .catch((err) => {
+        console.warn('[Settings] Failed to fetch company defaults:', err?.message);
+      });
+  }, []);
+
+  const saveCompanySettings = async () => {
+    setIsSavingCompany(true);
+    try {
+      // 1. Submit to Backend API to persist in Database
+      const res = await apiClient.put('/settings/company', settings);
+      const savedData = res?.data || res;
+
+      const mergedSettings = {
+        ...settings,
+        ...(savedData && typeof savedData === 'object' ? savedData : {}),
+      };
+
+      // 2. Synchronize Admin Store and local state
+      const next = updateAdminPortalState((prev) => ({
+        ...prev,
+        settings: mergedSettings,
+        auditLogs: [
+          {
+            id: createAuditId(),
+            timestamp: formatNowStamp(),
+            user: user?.name ? `${user.name} (${user.role || 'Admin'})` : 'Robert King (Admin)',
+            action: 'Updated Company Defaults',
+            target: `${mergedSettings.companyName} · ${mergedSettings.ein || ''}`,
+            beforeAfter: `${mergedSettings.supportEmail} · ${mergedSettings.supportPhone}`,
+            reason: 'Saved company defaults & legal entity details to database',
+            effectiveDate: new Date().toLocaleDateString('en-US'),
+          },
+          ...(prev.auditLogs || []),
+        ],
+      }));
+      setPortalState(next);
+      setSettings(mergedSettings);
+      toast.success('U.S. company profile & defaults saved to database!');
+    } catch (err) {
+      console.error('Save company settings error:', err);
+      updateAdminPortalState((prev) => ({ ...prev, settings }));
+      toast.error('Failed to save company settings: ' + (err.response?.data?.message || err.message || 'Server error'));
+    } finally {
+      setIsSavingCompany(false);
+    }
   };
 
   // Backup & Session State
@@ -673,7 +713,7 @@ export default function SettingsPage() {
             <Input label="Support U.S. Phone" value={settings.supportPhone} onChange={(e) => setSettings({ ...settings, supportPhone: e.target.value })} />
           </div>
           <Input label="Registered U.S. Office Address" value={settings.address} onChange={(e) => setSettings({ ...settings, address: e.target.value })} />
-          <Button icon={Save} onClick={saveCompanySettings}>Save Company Defaults</Button>
+          <Button icon={Save} loading={isSavingCompany} onClick={saveCompanySettings}>Save Company Defaults</Button>
         </Card>
       )}
 
