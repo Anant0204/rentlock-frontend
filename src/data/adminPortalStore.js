@@ -524,24 +524,8 @@ const defaultState = {
   rolePermissions: {
     ...DEFAULT_ROLE_PERMISSIONS,
   },
-  userPermissions: {
-    'manager@rentlock.com': {
-      ...DEFAULT_ROLE_PERMISSIONS.manager,
-      canAddTenants: true,
-    },
-    'sarah.jenkins@rentlock.com': {
-      ...DEFAULT_ROLE_PERMISSIONS.manager,
-      canAddTenants: true,
-    },
-    'owner@rentlock.com': {
-      ...DEFAULT_ROLE_PERMISSIONS.owner,
-    },
-  },
-  auditLogs: [
-    { id: 'AUD-704', timestamp: '11/11/2026 09:14 AM', user: 'Sarah Jenkins (Manager)', action: 'Escalated Work Order Cap', target: 'WO-302 ($1,250 vs $1,000 cap)', beforeAfter: 'Pending -> Escalated to Admin', reason: 'Vendor plumbing estimate exceeds $1,000 manager approval cap', effectiveDate: '11/11/2026' },
-    { id: 'AUD-703', timestamp: '11/10/2026 04:05 PM', user: 'Robert King (Admin)', action: 'Updated Late Fee Grace Policy', target: 'Company Default', beforeAfter: '3 days -> 5 days (future leases only)', reason: 'NJ/NY portfolio standardization — existing signed leases unchanged', effectiveDate: '12/01/2026' },
-    { id: 'AUD-702', timestamp: '11/05/2026 09:41 AM', user: 'Rebecca Miller (Tenant)', action: 'Posted ACH Payment', target: 'INV-2026-001', beforeAfter: 'Balance $2,000 -> $500', reason: 'Authorized tenant portal ACH payment', effectiveDate: '11/05/2026' },
-  ],
+  userPermissions: {},
+  auditLogs: [],
   previewUser: null,
 };
 
@@ -550,6 +534,11 @@ export const getAdminPortalState = () => {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
+      if (parsed && parsed.userPermissions) {
+        delete parsed.userPermissions['manager@rentlock.com'];
+        delete parsed.userPermissions['sarah.jenkins@rentlock.com'];
+        delete parsed.userPermissions['owner@rentlock.com'];
+      }
       return { ...defaultState, ...parsed };
     }
   } catch {

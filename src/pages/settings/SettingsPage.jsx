@@ -49,7 +49,6 @@ import {
   resetUserToRoleDefault,
   saveRoleTierPermissions,
 } from '../../data/adminPortalStore';
-import { getManagers, getOwners } from '../../data/mockExtra';
 import { formatUsd } from '../../utils/formatters';
 import { isDemoMode, setCleanMode, setDemoMode } from '../../data/appDataReset';
 
@@ -75,17 +74,17 @@ const ROLE_META = {
   },
   owner: {
     label: 'Owner',
-    accountHolder: 'Claire Bennett · Property Owner (Read-Only)',
+    accountHolder: 'Property Asset Owner',
     scopeNote: 'Owned properties only. Views cash position, expenses, disbursements, and statements; tenant PII hidden.',
   },
   manager: {
     label: 'Manager',
-    accountHolder: 'Sarah Jenkins · Property Manager',
-    scopeNote: 'Assigned buildings only (4 properties · 118 units). Approvals capped by manager spending limit.',
+    accountHolder: 'Property Manager',
+    scopeNote: 'Assigned buildings only. Approvals capped by manager spending limit.',
   },
   tenant: {
     label: 'Tenant',
-    accountHolder: 'Rebecca Miller · Resident (A-204)',
+    accountHolder: 'Resident',
     scopeNote: 'Own household only. Can pay rent, submit repair work orders, and message manager/vendors.',
   },
 };
@@ -106,9 +105,6 @@ const MODULE_LABELS = [
 
 const INITIAL_SESSIONS = [
   { id: 'SES-01', user: 'Robert King (Admin)', device: 'Chrome · Windows · New York, NY', lastActive: 'Just now', active: true },
-  { id: 'SES-02', user: 'Sarah Jenkins (Manager)', device: 'Safari · macOS · Brooklyn, NY', lastActive: '14 min ago', active: true },
-  { id: 'SES-03', user: 'Claire Bennett (Owner)', device: 'Edge · Windows · Manhattan, NY', lastActive: '1 hr ago', active: true },
-  { id: 'SES-04', user: 'Rebecca Miller (Tenant)', device: 'Mobile Safari · iOS · Brooklyn, NY', lastActive: '2 hr ago', active: true },
 ];
 
 const RBAC_CATEGORIES = [
@@ -276,71 +272,67 @@ export default function SettingsPage() {
   };
 
   // Available Accounts for Granular RBAC Assignment
-  const managersList = useMemo(() => {
-    const custom = getManagers().filter((m) => !m.archived);
-    const standard = [
-      {
-        id: 'manager@rentlock.com',
-        name: 'Sarah Jenkins',
-        email: 'manager@rentlock.com',
-        role: 'manager',
-        title: 'Lead Operations Manager',
-        properties: 'Sunrise Residency, Harborview Lofts, Metro Business Park, Green Valley Villas',
-      },
-    ];
-    const combined = [...standard];
-    custom.forEach((c) => {
-      const email = (c.email || `${c.name.toLowerCase().replace(/\s+/g, '.')}@rentlock.com`).toLowerCase();
-      const name = (c.name || '').trim().toLowerCase();
-      const alreadyExists = combined.some(
-        (x) => x.email.toLowerCase() === email || x.name.trim().toLowerCase() === name
-      );
-      if (!alreadyExists) {
-        combined.push({
-          id: email,
-          name: c.name,
-          email,
-          role: 'manager',
-          title: c.role || 'Property Manager',
-          properties: Array.isArray(c.properties) ? c.properties.join(', ') : 'Assigned Buildings',
-        });
-      }
-    });
-    return combined;
+  const [serverManagers, setServerManagers] = useState([]);
+  const [serverOwners, setServerOwners] = useState([]);
+
+  useEffect(() => {
+    localStorage.removeItem('custom_managers');
+    localStorage.removeItem('custom_owners');
+
+    apiClient.get('/managers').then((res) => {
+      const items = res?.items || res;
+      if (Array.isArray(items)) setServerManagers(items);
+    }).catch(() => {});
+
+    apiClient.get('/owners').then((res) => {
+      const items = res?.items || res;
+      if (Array.isArray(items)) setServerOwners(items);
+    }).catch(() => {});
   }, []);
 
-  const ownersList = useMemo(() => {
-    const custom = getOwners().filter((o) => !o.archived);
-    const standard = [
-      {
-        id: 'owner@rentlock.com',
-        name: 'Claire Bennett',
-        email: 'owner@rentlock.com',
-        role: 'owner',
-        title: 'Primary Holding Owner',
-        properties: 'Sunrise Residency, Green Valley Villas, Metro Business Park',
-      },
-    ];
-    const combined = [...standard];
-    custom.forEach((c) => {
-      const email = (c.email || `${c.name.toLowerCase().replace(/\s+/g, '.')}@rentlock.com`).toLowerCase();
-      const name = (c.name || '').trim().toLowerCase();
-      const alreadyExists = combined.some(
-        (x) => x.email.toLowerCase() === email || x.name.trim().toLowerCase() === name
-      );
-      if (!alreadyExists) {
+  const managersList = useMemo(() => {
+    const combined = [];
+    const seen = new Set();
+
+    serverManagers.forEach((sm) => {
+      const email = (sm.email || '').toLowerCase().trim();
+      if (email && !seen.has(email)) {
+        seen.add(email);
         combined.push({
-          id: email,
-          name: c.name,
+          id: sm.id || email,
+          name: sm.name || email,
           email,
-          role: 'owner',
-          title: 'Property Asset Owner',
-          properties: Array.isArray(c.properties) ? c.properties.join(', ') : 'Owned Properties',
+          role: 'manager',
+          title: sm.title || 'Property Manager',
+          properties: Array.isArray(sm.properties) ? sm.properties.join(', ') : (sm.properties || 'Assigned Buildings'),
         });
       }
     });
+
     return combined;
-  }, []);
+  }, [serverManagers]);
+
+  const ownersList = useMemo(() => {
+    const combined = [];
+    const seen = new Set();
+
+    serverOwners.forEach((so) => {
+      const email = (so.email || '').toLowerCase().trim();
+      if (email && !seen.has(email)) {
+        seen.add(email);
+        combined.push({
+          id: so.id || email,
+          name: so.name || email,
+          email,
+          role: 'owner',
+          title: so.title || 'Property Asset Owner',
+          properties: Array.isArray(so.properties) ? so.properties.join(', ') : (so.properties || 'Owned Properties'),
+        });
+      }
+    });
+
+    return combined;
+  }, [serverOwners]);
 
   const allUsersForRbac = useMemo(() => {
     return [...managersList, ...ownersList];
@@ -348,15 +340,23 @@ export default function SettingsPage() {
 
   // Granular RBAC State
   const [rbacConfigMode, setRbacConfigMode] = useState('specific_user'); // 'specific_user' | 'role_tier'
-  const [selectedUserKey, setSelectedUserKey] = useState('manager@rentlock.com');
+  const [selectedUserKey, setSelectedUserKey] = useState('');
   const [selectedRoleTier, setSelectedRoleTier] = useState('manager');
 
+  useEffect(() => {
+    if ((!selectedUserKey || !allUsersForRbac.some((u) => u.email.toLowerCase() === selectedUserKey.toLowerCase())) && allUsersForRbac.length > 0) {
+      setSelectedUserKey(allUsersForRbac[0].email);
+    }
+  }, [allUsersForRbac, selectedUserKey]);
+
   const currentSelectedUser = useMemo(() => {
+    if (!allUsersForRbac.length) return null;
     return (
       allUsersForRbac.find((u) => u.email.toLowerCase() === selectedUserKey.toLowerCase()) ||
-      managersList[0]
+      allUsersForRbac[0] ||
+      null
     );
-  }, [allUsersForRbac, selectedUserKey, managersList]);
+  }, [allUsersForRbac, selectedUserKey]);
 
   // Identify active target role (manager, owner, admin, tenant)
   const currentRole = useMemo(() => {
@@ -400,7 +400,7 @@ export default function SettingsPage() {
   };
 
   const [permsDraft, setPermsDraft] = useState(() => {
-    return sanitizePerms(getUserEffectivePermissions('manager@rentlock.com'), 'manager');
+    return sanitizePerms({ ...DEFAULT_ROLE_PERMISSIONS.manager, role: 'manager' }, 'manager');
   });
 
   const [isRbacModalOpen, setIsRbacModalOpen] = useState(false);
@@ -844,35 +844,39 @@ export default function SettingsPage() {
                       </label>
                     </div>
                     <div className="flex flex-wrap gap-2.5">
-                      {managersList.map((m) => {
-                        const isSelected = selectedUserKey.toLowerCase() === m.email.toLowerCase();
-                        const perms = getUserEffectivePermissions(m.email);
-                        return (
-                          <button
-                            key={m.email}
-                            type="button"
-                            onClick={() => handleSelectUser(m.email)}
-                            className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                              isSelected
-                                ? 'bg-indigo-50 border-indigo-400 text-indigo-900 ring-2 ring-indigo-500/20 shadow-sm'
-                                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-                            }`}
-                          >
-                            <div className={`w-6 h-6 rounded-lg flex items-center justify-center font-bold text-[11px] ${
-                              isSelected ? 'bg-indigo-600 text-white' : 'bg-blue-100 text-blue-700'
-                            }`}>
-                              {m.name.charAt(0)}
-                            </div>
-                            <div className="text-left">
-                              <p className="font-bold leading-tight">{m.name}</p>
-                              <p className="text-[10px] text-gray-400 font-normal">Manager · {m.email}</p>
-                            </div>
-                            {perms.isCustomOverride && (
-                              <span className="w-2 h-2 rounded-full bg-indigo-600 ring-2 ring-white" title="Custom override active" />
-                            )}
-                          </button>
-                        );
-                      })}
+                      {managersList.length === 0 ? (
+                        <p className="text-xs text-gray-400 italic py-1">No managers registered yet.</p>
+                      ) : (
+                        managersList.map((m) => {
+                          const isSelected = selectedUserKey.toLowerCase() === m.email.toLowerCase();
+                          const perms = getUserEffectivePermissions(m.email);
+                          return (
+                            <button
+                              key={m.email}
+                              type="button"
+                              onClick={() => handleSelectUser(m.email)}
+                              className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                                isSelected
+                                  ? 'bg-indigo-50 border-indigo-400 text-indigo-900 ring-2 ring-indigo-500/20 shadow-sm'
+                                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                              }`}
+                            >
+                              <div className={`w-6 h-6 rounded-lg flex items-center justify-center font-bold text-[11px] ${
+                                isSelected ? 'bg-indigo-600 text-white' : 'bg-blue-100 text-blue-700'
+                              }`}>
+                                {m.name.charAt(0)}
+                              </div>
+                              <div className="text-left">
+                                <p className="font-bold leading-tight">{m.name}</p>
+                                <p className="text-[10px] text-gray-400 font-normal">Manager · {m.email}</p>
+                              </div>
+                              {perms.isCustomOverride && (
+                                <span className="w-2 h-2 rounded-full bg-indigo-600 ring-2 ring-white" title="Custom override active" />
+                              )}
+                            </button>
+                          );
+                        })
+                      )}
                     </div>
                   </div>
 
@@ -885,41 +889,55 @@ export default function SettingsPage() {
                       </label>
                     </div>
                     <div className="flex flex-wrap gap-2.5">
-                      {ownersList.map((o) => {
-                        const isSelected = selectedUserKey.toLowerCase() === o.email.toLowerCase();
-                        const perms = getUserEffectivePermissions(o.email);
-                        return (
-                          <button
-                            key={o.email}
-                            type="button"
-                            onClick={() => handleSelectUser(o.email)}
-                            className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                              isSelected
-                                ? 'bg-purple-50 border-purple-400 text-purple-900 ring-2 ring-purple-500/20 shadow-sm'
-                                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-                            }`}
-                          >
-                            <div className={`w-6 h-6 rounded-lg flex items-center justify-center font-bold text-[11px] ${
-                              isSelected ? 'bg-purple-600 text-white' : 'bg-purple-100 text-purple-700'
-                            }`}>
-                              {o.name.charAt(0)}
-                            </div>
-                            <div className="text-left">
-                              <p className="font-bold leading-tight">{o.name}</p>
-                              <p className="text-[10px] text-gray-400 font-normal">Owner · {o.email}</p>
-                            </div>
-                            {perms.isCustomOverride && (
-                              <span className="w-2 h-2 rounded-full bg-purple-600 ring-2 ring-white" title="Custom override active" />
-                            )}
-                          </button>
-                        );
-                      })}
+                      {ownersList.length === 0 ? (
+                        <p className="text-xs text-gray-400 italic py-1">No owners registered yet.</p>
+                      ) : (
+                        ownersList.map((o) => {
+                          const isSelected = selectedUserKey.toLowerCase() === o.email.toLowerCase();
+                          const perms = getUserEffectivePermissions(o.email);
+                          return (
+                            <button
+                              key={o.email}
+                              type="button"
+                              onClick={() => handleSelectUser(o.email)}
+                              className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                                isSelected
+                                  ? 'bg-purple-50 border-purple-400 text-purple-900 ring-2 ring-purple-500/20 shadow-sm'
+                                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                              }`}
+                            >
+                              <div className={`w-6 h-6 rounded-lg flex items-center justify-center font-bold text-[11px] ${
+                                isSelected ? 'bg-purple-600 text-white' : 'bg-purple-100 text-purple-700'
+                              }`}>
+                                {o.name.charAt(0)}
+                              </div>
+                              <div className="text-left">
+                                <p className="font-bold leading-tight">{o.name}</p>
+                                <p className="text-[10px] text-gray-400 font-normal">Owner · {o.email}</p>
+                              </div>
+                              {perms.isCustomOverride && (
+                                <span className="w-2 h-2 rounded-full bg-purple-600 ring-2 ring-white" title="Custom override active" />
+                              )}
+                            </button>
+                          );
+                        })
+                      )}
                     </div>
                   </div>
                 </div>
 
-                {/* Selected User Account Summary Banner */}
-                <div className="p-4 rounded-2xl bg-gradient-to-r from-indigo-50/80 via-white to-blue-50/50 border border-indigo-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                {allUsersForRbac.length === 0 ? (
+                  <div className="p-8 text-center bg-gray-50 rounded-2xl border border-gray-200">
+                    <Users className="w-8 h-8 text-indigo-400 mx-auto mb-2" />
+                    <h4 className="text-sm font-bold text-gray-800">No Managers or Owners Registered</h4>
+                    <p className="text-xs text-gray-500 mt-1 max-w-md mx-auto">
+                      Currently there are no managers or owners registered in the system. When you create new managers or owners from their respective menus, they will appear here for individual RBAC permission management.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Selected User Account Summary Banner */}
+                    <div className="p-4 rounded-2xl bg-gradient-to-r from-indigo-50/80 via-white to-blue-50/50 border border-indigo-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div className="flex items-center gap-3.5">
                     <div className="w-11 h-11 rounded-xl bg-indigo-600 text-white font-bold text-base flex items-center justify-center shadow-sm">
                       {currentSelectedUser?.name?.charAt(0) || 'U'}
@@ -1011,8 +1029,10 @@ export default function SettingsPage() {
                     </div>
                   </div>
                 )}
-              </div>
+              </>
             )}
+          </div>
+        )}
 
             {/* MODE 2: Global Role Tier Defaults */}
             {rbacConfigMode === 'role_tier' && (
@@ -1285,11 +1305,13 @@ export default function SettingsPage() {
                   Updates apply immediately in real time and are recorded in the <strong>Governance Audit Log</strong>.
                 </span>
               </div>
-              <Button icon={ShieldCheck} onClick={() => setIsRbacModalOpen(true)}>
-                {rbacConfigMode === 'specific_user'
-                  ? `Save Permissions for ${currentSelectedUser?.name || selectedUserKey}`
-                  : `Save ${ROLE_META[selectedRoleTier]?.label || selectedRoleTier} Tier Baseline`}
-              </Button>
+              {!(rbacConfigMode === 'specific_user' && allUsersForRbac.length === 0) && (
+                <Button icon={ShieldCheck} onClick={() => setIsRbacModalOpen(true)}>
+                  {rbacConfigMode === 'specific_user'
+                    ? `Save Permissions for ${currentSelectedUser?.name || selectedUserKey}`
+                    : `Save ${ROLE_META[selectedRoleTier]?.label || selectedRoleTier} Tier Baseline`}
+                </Button>
+              )}
             </div>
           </Card>
         </div>
